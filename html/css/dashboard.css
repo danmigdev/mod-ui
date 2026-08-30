@@ -18,10 +18,10 @@
     right: 0;
 }
 
-/* Link to the new "grid" theme (see docs/plans/20260822_164312_grid_theme_fractal.md)
-   — a plain fontello glyph instead of the #main-menu icons' usual sprite
-   (img/menu-icons-sprite.png), which is a fixed sheet with no free slot for
-   a new one. #main-menu>div.icon already sets the 45x45 box (main.css). */
+/* Link to the new "grid" theme — a plain fontello glyph instead of the
+   #main-menu icons' usual sprite (img/menu-icons-sprite.png), which is a
+   fixed sheet with no free slot for a new one. #main-menu>div.icon already
+   sets the 45x45 box (main.css). */
 #mod-grid-theme:before {
     display: block;
     height: 45px;

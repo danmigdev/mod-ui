@@ -1865,8 +1865,7 @@ class TemplateHandler(TimelessRequestHandler):
         return context
 
     def grid(self):
-        # Independent "grid" theme (see docs/plans/20260822_164312_grid_theme_fractal.md):
-        # needs the exact same bootstrap data as the default theme.
+        # Independent "grid" theme: needs the exact same bootstrap data as the default theme.
         return self.index()
 
     def pedalboard(self):

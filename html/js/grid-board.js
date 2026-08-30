@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Grid canvas rendering for the independent "grid" theme.
-// See docs/plans/20260822_164312_grid_theme_fractal.md for the overall design.
 
 // Same canonical category set the default theme's plugin browser uses
 // (html/js/effects.js showPlugins), plus our own 'I/O' for hardware ports.

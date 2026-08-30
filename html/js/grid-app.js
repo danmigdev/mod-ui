@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Controller for the independent "grid" theme: websocket protocol handling,
-// REST calls and the linear auto-wiring chain. See
-// docs/plans/20260822_164312_grid_theme_fractal.md for the design.
+// REST calls and the linear auto-wiring chain.
 
 // modgui.js (reused as-is for the plugin skins) has a couple of calls that are
 // unconditional on a global `desktop` object belonging to the default theme

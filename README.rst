@@ -70,8 +70,7 @@ mod-ui ships two independent front-end themes, both served by the same backend:
   uniform blocks in a configurable row/column grid, a single auto-wired signal chain, and
   parameters edited in a bottom panel (real plugin skin on one side, a generic control list on
   the other). Still missing some of the default theme's features (bank/preset cloud sharing,
-  control-chain device management, tuner); see ``docs/plans/20260822_164312_grid_theme_fractal.md``
-  for the design notes.
+  control-chain device management, tuner).
 
 Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
 and "Classic UI" under Settings in the grid theme.
