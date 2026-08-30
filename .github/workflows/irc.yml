@@ -9,8 +9,13 @@ jobs:
     steps:
       - name: Format message
         id: message
+        env:
+          ACTOR: ${{ github.actor }}
+          COMMIT_MSG: ${{ github.event.commits[0].message }}
+          COMMIT_URL: ${{ github.event.commits[0].url }}
         run: |
-          echo "message=${{ github.actor }} pushed $(echo '${{ github.event.commits[0].message }}' | head -n 1) ${{ github.event.commits[0].url }}" >> $GITHUB_OUTPUT
+          FIRST_LINE=$(printf '%s\n' "$COMMIT_MSG" | head -n 1)
+          echo "message=$ACTOR pushed $FIRST_LINE $COMMIT_URL" >> "$GITHUB_OUTPUT"
       - name: IRC notification
         uses: Gottox/irc-message-action@v2
         with:
