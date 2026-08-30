@@ -58,3 +58,20 @@ And now you are ready to start the webserver::
 
 Setting the environment variables is needed when developing on a PC.
 Open your browser and point to http://localhost:8888/.
+
+Themes
+------
+
+mod-ui ships two independent front-end themes, both served by the same backend:
+
+- **Default** (``/`` or ``/index.html``): the original free-canvas pedalboard editor, with each
+  plugin drawn at its own custom skin size and connected with hand-dragged cables.
+- **Grid** (``/grid.html``): a newer, Fractal Audio FM3-Edit-style editor, with plugins as
+  uniform blocks in a configurable row/column grid, a single auto-wired signal chain, and
+  parameters edited in a bottom panel (real plugin skin on one side, a generic control list on
+  the other). Still missing some of the default theme's features (bank/preset cloud sharing,
+  control-chain device management, tuner); see ``docs/plans/20260822_164312_grid_theme_fractal.md``
+  for the design notes.
+
+Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
+and "Classic UI" under Settings in the grid theme.
