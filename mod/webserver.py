@@ -479,6 +479,9 @@ class SystemExeChange(JsonRequestHandler):
                 yield gen.Task(run_command, ["hmi-reset"], None)
                 IOLoop.instance().add_callback(self.reboot)
 
+            elif cmd == "poweroff":
+                IOLoop.instance().add_callback(self.poweroff)
+
             elif cmd == "restore":
                 IOLoop.instance().add_callback(start_restore)
 
@@ -612,6 +615,11 @@ class SystemExeChange(JsonRequestHandler):
     def reboot(self):
         os_sync()
         yield gen.Task(run_command, ["reboot"], None)
+
+    @gen.coroutine
+    def poweroff(self):
+        os_sync()
+        yield gen.Task(run_command, ["poweroff"], None)
 
 class SystemCleanup(JsonRequestHandler):
     @gen.coroutine
@@ -1598,6 +1606,14 @@ class PedalboardTransportSetSyncMode(JsonRequestHandler):
 
 class SnapshotSave(JsonRequestHandler):
     def post(self):
+        # snapshot_save() only ever mutates the in-memory snapshot list, and
+        # save_snapshots_to_disk() is a silent no-op with no pedalboard_path
+        # to write into — without this check a snapshot "saves" successfully
+        # (ok: True) while having nowhere to persist to, and vanishes on the
+        # next reset/reload.
+        if not SESSION.host.pedalboard_path:
+            self.write(False)
+            return
         ok = SESSION.host.snapshot_save()
         SESSION.host.save_snapshots_to_disk()
         self.write(ok)
@@ -1606,6 +1622,9 @@ class SnapshotSaveAs(JsonRequestHandler):
     @web.asynchronous
     @gen.engine
     def get(self):
+        if not SESSION.host.pedalboard_path:
+            self.write({'ok': False, 'id': None, 'title': ''})
+            return
         title = self.get_argument('title')
         idx   = SESSION.host.snapshot_saveas(title)
         title = SESSION.host.snapshot_name(idx)
@@ -1699,12 +1718,35 @@ class BankLoad(JsonRequestHandler):
                 try:
                     pbdata = pedalboards_data[bundle]
                 except KeyError:
-                    continue
+                    # Not in the pedalboard-info cache (e.g. just created, cache
+                    # not rescanned yet) but still really on disk: report the
+                    # bare stub rather than silently dropping it, or a client
+                    # that trusts this response's pedalboard list (bank
+                    # membership checks, delete guards) would wrongly treat a
+                    # non-empty bank as empty.
+                    if os.path.exists(bundle):
+                        pbdata = pb
+                    else:
+                        continue
                 bank_pedalboards.append(pbdata)
             bank['pedalboards'] = bank_pedalboards
 
         # All set
         self.write(banks)
+
+class BankLoadRaw(JsonRequestHandler):
+    # GET /banks returns each bank's pedalboards cross-referenced against the
+    # scanned pedalboard-info cache, silently dropping any entry the scanner
+    # doesn't currently recognise as valid (not yet rescanned after creation,
+    # or flagged "broken" e.g. an empty just-created pedalboard with no
+    # plugin blocks yet) — list_banks() then persists that trimmed-down view
+    # right back to banks.json, turning a transient scanner miss into a
+    # permanent, silent loss of the bank/pedalboard reference. Callers that
+    # need to know the true, currently-saved bank/pedalboard structure (bank
+    # membership checks, delete guards, moves) should read this endpoint
+    # instead: the exact banks.json contents, unfiltered and un-persisted.
+    def get(self):
+        self.write(safe_json_load(USER_BANKS_JSON_FILE, list))
 
 class BankSave(JsonRequestHandler):
     def post(self):
@@ -1753,7 +1795,7 @@ class TemplateHandler(TimelessRequestHandler):
         loader = Loader(HTML_DIR)
         section = path.split('.',1)[0]
 
-        if section == 'index':
+        if section in ('index', 'grid'):
             yield gen.Task(SESSION.wait_for_hardware_if_needed)
 
         try:
@@ -1821,6 +1863,11 @@ class TemplateHandler(TimelessRequestHandler):
             'sampleRate': get_jack_sample_rate(),
         }
         return context
+
+    def grid(self):
+        # Independent "grid" theme (see docs/plans/20260822_164312_grid_theme_fractal.md):
+        # needs the exact same bootstrap data as the default theme.
+        return self.index()
 
     def pedalboard(self):
         bundlepath = self.get_argument('bundlepath')
@@ -2335,6 +2382,7 @@ application = web.Application(
 
             # bank stuff
             (r"/banks/?", BankLoad),
+            (r"/banks/raw/?", BankLoadRaw),
             (r"/banks/save/?", BankSave),
 
             (r"/auth/nonce/?$", AuthNonce),

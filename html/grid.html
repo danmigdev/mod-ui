@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="UTF-8">
+<title>MOD Grid</title>
+
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon/favicon-32x32.png">
+
+<link rel="stylesheet" type="text/css" href="css/fonts.css?v={{version}}"/>
+<link rel="stylesheet" type="text/css" href="css/fontello/css/fontello.css?v={{version}}"/>
+<!-- Base styling for modgui plugin skins (.mod-pedal / .mod-control-group /
+     .mod-port / .mod-drag-handle positioning etc.) — the default theme loads
+     these too (see index.html); without them a skin's own per-plugin
+     stylesheet (which only carries its overrides, not this shared base) is
+     missing the layout/positioning rules it was built assuming are present,
+     e.g. port jacks and the drag-handle overlay render unpositioned. -->
+<link rel="stylesheet" type="text/css" href="css/pedals.css?v={{version}}"/>
+<link rel="stylesheet" type="text/css" href="resources/pedals/default.css?v={{version}}"/>
+<link rel="stylesheet" type="text/css" href="css/grid-dashboard.css?v={{version}}"/>
+<link rel="stylesheet" type="text/css" href="css/grid-manage.css?v={{version}}"/>
+
+<script type="text/javascript" src="js/lib/jquery-1.9.1.min.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/jquery-ui-1.10.1.custom.min.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/jquery.ui.touch-punch.min.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/jquery.ba-resize.min.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/mustache.js?v={{version}}"></script>
+<!-- plugin GUIs are arbitrary third-party JS (see modgui.js) and some rely on
+     these same libraries the default theme loads (e.g. jquery.svg.js for a
+     custom-drawn meter/waveform) — without them a skin's own JS throws and
+     modgui.js disables it instead of crashing the whole page, but the plugin
+     ends up partially broken (e.g. Audio File's play button doing nothing) -->
+<script type="text/javascript" src="js/lib/jquery.svg.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/sprintf-0.6.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/jquery.mousewheel.min.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/jquery.textareaAutoResize.js?v={{version}}"></script>
+<script type="text/javascript" src="js/lib/arrive.min.js?v={{version}}"></script>
+
+<script type="text/javascript">
+    {% autoescape None %}
+    VERSION = '{{version}}'
+    var SAMPLERATE = {{sampleRate}}
+    var DEFAULT_ICON_TEMPLATE = '{{default_icon_template}}'
+    var DEFAULT_SETTINGS_TEMPLATE = '{{default_settings_template}}'
+    var BUNDLE_PATH = '{{bundlepath}}'
+    var PEDALBOARD_TITLE = '{{title}}'
+    PATCHSTORAGE_ENABLED = '{{patchstorage_enabled}}'
+    PATCHSTORAGE_API_URL = '{{patchstorage_api_url}}'
+    PATCHSTORAGE_PLATFORM_ID = '{{patchstorage_platform_id}}'
+    PATCHSTORAGE_TARGET_ID = '{{patchstorage_target_id}}'
+</script>
+
+<script type="text/javascript" src="js/modgui.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-board.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-params.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-nav.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-connect-dialog.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-app.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-manage.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-file-manager.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-store.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-settings.js?v={{version}}"></script>
+</head>
+
+<body>
+
+<div id="grid-app-root">
+
+<header id="grid-header">
+    <button id="grid-nav-toggle" title="Banks / Pedalboards / Snapshots">&#9776;</button>
+    <div id="grid-title-block">
+        <h1 id="grid-title">{{title}}</h1>
+        <div id="grid-status-line"></div>
+    </div>
+
+    <div id="grid-toolbar">
+        <button id="grid-new-snapshot" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Save the current state as a new snapshot of this pedalboard">&#128444;&#65039;</button>
+        <button id="grid-save" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Save the pedalboard">&#128190;</button>
+        <button id="grid-file-manager-toggle" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Open the file manager">&#128193;</button>
+        <button id="grid-store-toggle" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Browse and install plugins from Patchstorage">&#129513;</button>
+        <button id="grid-settings-toggle" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Settings">&#9881;&#65039;</button>
+        <span class="grid-toolbar-group">
+            <span id="grid-cpu-text"><span id="grid-cpu-label">CPU</span><span id="grid-cpu-value">--%</span></span>
+            <span id="grid-xruns-text" class="grid-hidden"><span id="grid-xruns-label">Xrun</span><span id="grid-xruns-value">0</span></span>
+        </span>
+        <span class="grid-toolbar-group">
+            <span class="grid-toolbar-label">Cols</span>
+            <button id="grid-col-remove" title="Remove column">&minus;</button>
+            <span id="grid-cols-count"></span>
+            <button id="grid-col-add" title="Add column">+</button>
+        </span>
+        <span class="grid-toolbar-group">
+            <span class="grid-toolbar-label">Rows</span>
+            <button id="grid-row-remove" title="Remove row">&minus;</button>
+            <span id="grid-rows-count"></span>
+            <button id="grid-row-add" title="Add row">+</button>
+        </span>
+        <span class="grid-toolbar-group">
+            <span class="grid-toolbar-label">Zoom</span>
+            <button id="grid-zoom-out" title="Zoom out">&minus;</button>
+            <span id="grid-zoom-pct">100%</span>
+            <button id="grid-zoom-in" title="Zoom in">+</button>
+        </span>
+        <button id="grid-shutdown" class="grid-toolbar-action grid-toolbar-danger" title="Power off the device">Power Off</button>
+    </div>
+</header>
+
+<div id="grid-nav-backdrop" class="grid-hidden"></div>
+<div id="grid-nav-panel" class="grid-hidden">
+    <div id="grid-nav-panel-header">
+        <h2>Banks</h2>
+        <div class="grid-nav-header-actions">
+            <button id="grid-nav-add" class="grid-toolbar-action grid-manage-new" title="Create a new bank">New Bank</button>
+            <button id="grid-nav-pin" title="Keep panel open while using the grid">&#128204;</button>
+        </div>
+    </div>
+    <div id="grid-nav-tree"></div>
+</div>
+
+<div id="grid-shelf">
+    <div id="grid-shelf-content">
+        <div id="grid-shelf-toprow">
+            <input type="text" id="grid-shelf-search" placeholder="Search plugins&hellip;">
+            <div id="grid-shelf-tabs"></div>
+        </div>
+        <div id="grid-shelf-row">
+            <button id="grid-shelf-nav-left" title="Previous page">&lsaquo;</button>
+            <div id="grid-shelf-list"><div id="grid-shelf-track"></div></div>
+            <button id="grid-shelf-nav-right" title="Next page">&rsaquo;</button>
+        </div>
+    </div>
+    <button id="grid-shelf-toggle" title="Hide plugin shelf">&#9650;</button>
+</div>
+
+<main id="grid-canvas-wrap">
+    <div id="grid-canvas"></div>
+    <div id="grid-canvas-empty" class="grid-hidden">
+        <div id="grid-canvas-empty-inner">
+            <p>No pedalboard is open. Create a bank, then a pedalboard inside it, to get started.</p>
+            <button id="grid-canvas-empty-open-nav" class="grid-toolbar-action grid-manage-new">Open Banks</button>
+        </div>
+    </div>
+</main>
+
+<div id="grid-bottom-panel" class="grid-hidden">
+    <div id="grid-panel-resize-height" title="Drag to resize"></div>
+    <div id="grid-panel-skin">
+        <div id="grid-skin-zoom-controls">
+            <button id="grid-skin-zoom-out" title="Zoom out">&minus;</button>
+            <button id="grid-skin-zoom-in" title="Zoom in">+</button>
+        </div>
+    </div>
+    <div id="grid-panel-divider" title="Drag to resize"></div>
+    <div id="grid-panel-generic"></div>
+    <button id="grid-panel-close" title="Close">&times;</button>
+</div>
+
+<div id="grid-notifications"></div>
+
+<div id="grid-connect-dialog" class="grid-hidden">
+    <div class="grid-connect-inner">
+        <h3 id="grid-connect-title">Connect ports</h3>
+        <p id="grid-connect-hint">Multiple ports on each side — choose how to wire them.</p>
+        <div id="grid-connect-rows"></div>
+        <div class="grid-connect-actions">
+            <button id="grid-connect-cancel">Cancel</button>
+            <button id="grid-connect-confirm" class="grid-toolbar-action">Connect</button>
+        </div>
+    </div>
+</div>
+
+<!-- Explorer/Finder-style file manager: tree on the left, icon grid on the
+     right, drag-and-drop to move files between folders. Talks to the
+     separate MOD File Manager service (browsepy, its own process on port
+     8081) through the same-origin /filesvc/* proxy added to webserver.py
+     (see FileManagerProxy there) — needed because a page served from this
+     app's own origin can't fetch() cross-origin into a different port
+     without the target sending Access-Control-Allow-Origin, which stock
+     browsepy never does. See grid-file-manager.js. -->
+<div id="grid-file-manager-overlay" class="grid-hidden">
+    <div class="grid-file-manager-inner">
+        <div class="grid-file-manager-header">
+            <h3>File Manager</h3>
+            <span id="grid-fm-diskspace" class="grid-fm-diskspace"></span>
+            <button id="grid-fm-new-folder" class="grid-fm-toolbtn" title="New folder">+ Folder</button>
+            <button id="grid-fm-upload" class="grid-fm-toolbtn" title="Upload files">Upload</button>
+            <button id="grid-fm-paste" class="grid-fm-toolbtn" title="Paste" disabled>Paste</button>
+            <input type="file" id="grid-fm-upload-input" multiple style="display:none">
+            <span class="grid-fm-view-toggle">
+                <button id="grid-fm-view-icons" class="grid-fm-toolbtn" title="Icon view">&#9638; Icons</button>
+                <button id="grid-fm-view-list" class="grid-fm-toolbtn" title="List view">&#9776; List</button>
+            </span>
+            <button id="grid-file-manager-close" title="Close">&times;</button>
+        </div>
+        <div class="grid-fm-body">
+            <div id="grid-fm-tree" class="grid-fm-tree"></div>
+            <div class="grid-fm-main">
+                <div id="grid-fm-breadcrumb" class="grid-fm-breadcrumb"></div>
+                <div id="grid-fm-grid" class="grid-fm-grid"></div>
+                <div id="grid-fm-list" class="grid-fm-list grid-hidden">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="grid-fm-list-col-name" data-sort="name">Name</th>
+                                <th class="grid-fm-list-col-ext" data-sort="extension">Type</th>
+                                <th class="grid-fm-list-col-size" data-sort="size">Size</th>
+                                <th class="grid-fm-list-col-date" data-sort="mtime">Modified</th>
+                                <th class="grid-fm-list-col-date" data-sort="ctime">Created</th>
+                                <th class="grid-fm-list-col-actions"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="grid-fm-list-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Plugin store: browse/search/install/update/remove from Patchstorage,
+     built fresh in grid's own style (see grid-store.js) rather than reusing
+     the default theme's patchstorage.js, which is wired into that theme's
+     window/Mustache-template machinery. -->
+<div id="grid-store-overlay" class="grid-hidden">
+    <div class="grid-store-inner">
+        <div class="grid-store-header">
+            <h3>Plugin Store</h3>
+            <input type="search" id="grid-store-search" placeholder="Search plugins&hellip;">
+            <span id="grid-store-count"></span>
+            <button id="grid-store-close" title="Close">&times;</button>
+        </div>
+        <div id="grid-store-filters" class="grid-store-filters"></div>
+        <div id="grid-store-tabs" class="grid-store-tabs"></div>
+        <div id="grid-store-grid" class="grid-store-grid"></div>
+    </div>
+</div>
+
+<div id="grid-store-detail-overlay" class="grid-hidden">
+    <div id="grid-store-detail-inner" class="grid-store-detail-inner"></div>
+</div>
+
+<!-- Text size, independent of the toolbar's layout "Zoom" — see
+     grid-settings.js and the html { font-size } comment in
+     grid-dashboard.css. -->
+<div id="grid-settings-overlay" class="grid-hidden">
+    <div class="grid-settings-inner">
+        <div class="grid-settings-header">
+            <h3>Settings</h3>
+            <button id="grid-settings-close" title="Close">&times;</button>
+        </div>
+        <div class="grid-settings-body">
+            <div class="grid-settings-row">
+                <span class="grid-settings-label">Text size</span>
+                <div class="grid-settings-control">
+                    <button id="grid-settings-font-dec" title="Smaller">&minus;</button>
+                    <span id="grid-settings-font-pct">100%</span>
+                    <button id="grid-settings-font-inc" title="Larger">+</button>
+                    <button id="grid-settings-font-reset" title="Reset to default">Reset</button>
+                </div>
+            </div>
+            <div class="grid-settings-row">
+                <span class="grid-settings-label">Classic UI</span>
+                <div class="grid-settings-control">
+                    <a id="grid-settings-classic-ui" href="index.html">Switch back</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div>
+
+</body>
+</html>

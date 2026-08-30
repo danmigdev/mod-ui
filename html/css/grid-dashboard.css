@@ -1,0 +1,1995 @@
+/* SPDX-FileCopyrightText: 2012-2023 MOD Audio UG */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+:root {
+    --grid-bg: #0d0d0d;
+    --grid-panel-bg: #1c1c1c;
+    --grid-panel-bg-2: #222222;
+    --grid-border: #3a3a3a;
+    --grid-text: #e6e6e6;
+    --grid-text-dim: #9a9a9a;
+    --grid-accent: #883996;
+    --grid-cell-border: rgba(255,255,255,0.06);
+}
+
+* { box-sizing: border-box; }
+
+/* Plugin skins (modgui) render unscoped into this same document (see
+   html/js/modgui.js). The default theme forces every element to "cooper
+   hewitt" too (see the `*{font-family:"cooper hewitt",Sans-serif !important}`
+   rule in css/main.css, which this theme intentionally does not load — that
+   file is the old theme's whole base+component stylesheet, not just a font
+   reset) — some skins are laid out as a tight pixel fit against that font's
+   specific glyph metrics (e.g. a row of tabs sized to just barely fit its
+   container) and visibly overflow/wrap under this theme's own font instead.
+   Loading just the font (not all of main.css) and re-applying it, scoped to
+   the skin subtree, reproduces the metrics the skin was actually built
+   against without pulling in the old theme's unrelated global rules. */
+@font-face {
+    font-family: 'cooper hewitt';
+    src: url('../fonts/cooper/cooperhewitt-book-webfont.woff2') format('woff2'),
+         url('../fonts/cooper/cooperhewitt-book-webfont.woff') format('woff'),
+         url('../fonts/cooper/cooperhewitt-book-webfont.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'cooper hewitt';
+    src: url('../fonts/cooper/cooperhewitt-semibold-webfont.woff2') format('woff2'),
+         url('../fonts/cooper/cooperhewitt-semibold-webfont.woff') format('woff'),
+         url('../fonts/cooper/cooperhewitt-semibold-webfont.ttf') format('truetype');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+.mod-pedal, .mod-pedal *, .mod-settings, .mod-settings * {
+    font-family: "cooper hewitt", Sans-serif;
+}
+
+/* Text-size setting (see grid-settings.js) changes this one value — every
+   font-size below is in rem, so they all scale together from this single
+   root. Kept as a plain px value (not itself in rem: on the root element rem
+   would resolve against the browser's own default size instead of this
+   one, defeating the point). This is independent of the toolbar's "Zoom"
+   control, which scales the whole #grid-app-root layout via a CSS
+   transform — the two can be combined freely. */
+html {
+    font-size: 10px;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--grid-bg);
+    color: var(--grid-text);
+    font-family: 'Ek Mukta', sans-serif;
+    overflow: auto;
+}
+
+body {
+    /* one size for every string in this theme — see individual rules below,
+       all normalized to this same value instead of each picking their own */
+    font-size: 1.4rem;
+}
+
+/* Zoom (see grid-app.js zoomUi) scales this whole wrapper as one rigid unit —
+   header, shelf, canvas, panels, text — instead of just the grid content. */
+#grid-app-root {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-origin: top left;
+}
+
+#grid-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    /* min-height (not height): at high zoom the toolbar needs to wrap onto a
+       second line to stay fully visible instead of scrolling or disappearing,
+       so the header has to be free to grow taller to fit it. Everything
+       below (#grid-shelf, #grid-nav-panel, #grid-canvas-wrap) reads its
+       actual rendered height back via the --grid-header-h custom property,
+       kept in sync by updateHeaderHeight() in grid-app.js. */
+    min-height: 64px;
+    padding: 0 16px;
+    background: var(--grid-panel-bg-2);
+    border-bottom: 1px solid var(--grid-border);
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+#grid-nav-toggle {
+    flex: 0 0 auto;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid #4a4a4a;
+    border-radius: 5px;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 1.4rem;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+#grid-nav-toggle:hover { background: #3a3a3a; }
+
+#grid-title-block {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#grid-title {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--grid-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#grid-status-line {
+    font-size: 1.4rem;
+    color: var(--grid-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#grid-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.grid-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--grid-panel-bg);
+    border: 1px solid var(--grid-border);
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+.grid-toolbar-label {
+    color: var(--grid-text-dim);
+    font-size: 1.4rem;
+    font-weight: 600;
+    padding-right: 4px;
+}
+
+#grid-cpu-text {
+    /* deliberately two lines — "CPU" then the percentage right below it (see
+       the stats handler in grid-app.js) — matches the height of the
+       Cols/Rows button groups instead of one line that used to wrap
+       unpredictably depending on the percentage's digit count. The two
+       lines are separate elements (not one flex item split by a <br>) so
+       each can carry its own alignment below. */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 44px;
+    line-height: 1.3;
+    /* fixed (min==max) so the badge never resizes as the percentage changes */
+    min-width: 56px;
+    max-width: 56px;
+    color: var(--grid-text-dim);
+    font-size: 1.4rem;
+    font-weight: 600;
+    padding: 0 4px;
+}
+
+#grid-cpu-label { text-align: center; }
+#grid-cpu-value { text-align: right; }
+
+#grid-zoom-pct, #grid-cols-count, #grid-rows-count {
+    display: inline-block;
+    min-width: 24px;
+    max-width: 40px;
+    text-align: center;
+    color: var(--grid-text-dim);
+    font-weight: 600;
+}
+
+#grid-xruns-text {
+    /* same two-line label/value layout as #grid-cpu-text right next to it —
+       "Xrun" centered on top, the count right-aligned below */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 44px;
+    line-height: 1.3;
+    color: #ff6b6b;
+    font-weight: 600;
+    font-size: 1.4rem;
+    white-space: nowrap;
+    padding: 0 4px;
+}
+
+#grid-xruns-label { text-align: center; }
+#grid-xruns-value { text-align: right; }
+
+/* Touch-friendly targets: >=44px on a side is the common minimum recommended
+   hit-area for touchscreens, so every button in this UI sizes up to that. */
+#grid-toolbar button {
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid #4a4a4a;
+    border-radius: 5px;
+    min-width: 44px;
+    min-height: 44px;
+    line-height: 1;
+    font-size: 1.4rem;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+#grid-toolbar button:hover { background: #3a3a3a; }
+#grid-toolbar button:active { background: #454545; }
+
+.grid-toolbar-action {
+    height: 44px;
+    padding: 0 18px !important;
+    width: auto !important;
+    background: var(--grid-accent) !important;
+    border-color: #a24fb0 !important;
+    font-weight: 600;
+    font-size: 1.4rem !important;
+}
+
+/* Icon-only toolbar buttons (New Snapshot, Save, Files, Plugins, Settings) —
+   same footprint as the text ones above, just narrower padding (the glyph
+   doesn't need 18px of breathing room on each side) and a bigger glyph so it
+   reads clearly at the 44px touch target size. */
+.grid-toolbar-icon-btn {
+    padding: 0 12px !important;
+    font-size: 1.9rem !important;
+}
+
+/* Icon-only actions that aren't "creation" actions (Save/Files/Plugins/
+   Settings) — the purple .grid-toolbar-action accent was designed for text
+   buttons and reads as a wash of color once it's just a small glyph on it;
+   this drops back to the same neutral look as the plain Cols/Rows/Zoom
+   buttons, keeping the icon-btn sizing/padding above. */
+.grid-toolbar-action.grid-toolbar-neutral {
+    background: #2a2a2a !important;
+    border-color: #4a4a4a !important;
+    color: var(--grid-text) !important;
+}
+
+.grid-toolbar-action.grid-toolbar-neutral:hover {
+    background: #3a3a3a !important;
+}
+
+.grid-toolbar-action.grid-toolbar-danger {
+    background: #7a2222 !important;
+    border-color: #a83a3a !important;
+}
+
+.grid-toolbar-action.grid-toolbar-danger:hover {
+    background: #972b2b !important;
+}
+
+.grid-toolbar-action:disabled {
+    opacity: 0.4;
+    cursor: default;
+    background: #555 !important;
+    border-color: #666 !important;
+}
+.grid-toolbar-action:disabled:hover { background: #555 !important; }
+
+#grid-canvas-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: rgba(17, 17, 17, 0.85);
+    z-index: 5;
+}
+#grid-canvas-empty-inner {
+    max-width: 40rem;
+    padding: 2.4rem;
+}
+#grid-canvas-empty-inner p {
+    font-size: 1.6rem;
+    color: #ccc;
+    margin: 0 0 1.6rem;
+}
+
+/* #grid-shelf itself is NOT clipped (position:relative, natural height) so
+   the toggle tab below can hang outside its content and stay clickable —
+   only #grid-shelf-content collapses/clips. */
+#grid-shelf {
+    position: absolute;
+    top: var(--grid-header-h, 64px);
+    left: 0;
+    right: 0;
+    background: var(--grid-panel-bg);
+    border-bottom: 1px solid var(--grid-border);
+    transition: left 0.2s;
+}
+
+#grid-shelf-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px;
+    /* 16px padding + 36px toprow + 6px gap + 118px item height (see
+       .grid-shelf-item) — keep in sync with #grid-canvas-wrap's top below */
+    height: 176px;
+    overflow: hidden;
+    transition: height 0.2s, padding 0.2s;
+}
+
+body.grid-shelf-collapsed #grid-shelf-content {
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+#grid-shelf-toggle {
+    position: absolute;
+    bottom: -16px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 32px;
+    height: 16px;
+    line-height: 14px;
+    padding: 0;
+    background: var(--grid-panel-bg);
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    font-size: 1.4rem;
+    cursor: pointer;
+    touch-action: manipulation;
+    z-index: 5;
+}
+
+body.grid-shelf-collapsed #grid-canvas-wrap { top: var(--grid-header-h, 64px); }
+
+#grid-shelf-toprow {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#grid-shelf-search {
+    flex: 0 0 180px;
+    background: #111;
+    border: 1px solid var(--grid-border);
+    color: var(--grid-text);
+    border-radius: 4px;
+    height: 36px;
+    padding: 0 10px;
+    font-size: 1.4rem;
+}
+
+#grid-shelf-tabs {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    height: 36px;
+}
+
+.grid-shelf-tab {
+    flex: 0 0 auto;
+    /* a plain <div> (not a <button>) has no built-in content centering, so
+       the label sits at the top of the min-height box unless told otherwise */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid #4a4a4a;
+    border-radius: 14px;
+    min-height: 32px;
+    padding: 0 14px;
+    font-size: 1.4rem;
+    font-weight: 600;
+    cursor: pointer;
+    touch-action: manipulation;
+    white-space: nowrap;
+}
+
+.grid-shelf-tab:hover { background: #3a3a3a; }
+
+.grid-shelf-tab.grid-shelf-tab-active {
+    background: var(--grid-accent);
+    border-color: #a24fb0;
+    color: #fff;
+}
+
+#grid-shelf-row {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    /* the list (#grid-shelf-list) is a fixed width (see updateShelfListWidth()
+       in grid-app.js, clipped to a whole number of tiles) narrower than this
+       row's own width, so without this the nav arrows just sit wherever the
+       fixed-width items happen to end instead of at the row's actual edges */
+    justify-content: space-between;
+    gap: 6px;
+    overflow: hidden;
+}
+
+#grid-shelf-nav-left, #grid-shelf-nav-right {
+    flex: 0 0 auto;
+    min-width: 40px;
+    min-height: 40px;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid #4a4a4a;
+    border-radius: 5px;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+#grid-shelf-nav-left:hover, #grid-shelf-nav-right:hover { background: #3a3a3a; }
+
+/* The fixed viewport: stays put and clips at a constant screen position.
+   The transform-driven paging (see pageShelf() in grid-app.js) has to live on
+   a separate inner track instead of here — a transform on the clipping
+   element itself would drag the clip window along with it, so "page 2"
+   would just clip a totally different, wrong region of the strip instead of
+   revealing the next set of tiles. */
+#grid-shelf-list {
+    flex: 1;
+    min-width: 0;
+    /* without an explicit height, this has no definite size of its own (its
+       parent row uses align-items:center, not stretch) — so a child's
+       height:100% below would resolve to auto instead of a real number,
+       letting 2-line labels (e.g. "Neural Amp Modeler") grow taller than
+       single-line tiles instead of matching them */
+    height: 100%;
+    /* no scrolling: paging only happens via the arrow buttons, see pageShelf() */
+    overflow: hidden;
+}
+
+#grid-shelf-track {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    transition: transform 0.25s ease;
+}
+
+.grid-shelf-item {
+    /* same footprint as a grid block (see grid-board.js cellW) — no reason
+       for a plugin to look a different size in the shelf than on the grid */
+    flex: 0 0 118px;
+    width: 118px;
+    min-width: 118px;
+    max-width: 118px;
+    height: 100%;
+    /* without this, an unwrappable long label (e.g. "Neural Amp Modeler") can
+       inflate this flex item's automatic min-size past the fixed width above */
+    overflow: hidden;
+    contain: layout paint style;
+    background: #2a2a2a;
+    border: 1px solid #4a4a4a;
+    border-top: 4px solid var(--grid-accent);
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 4px 6px;
+    font-size: 1.4rem;
+    color: var(--grid-text);
+    cursor: grab;
+    touch-action: none;
+}
+
+.grid-shelf-item:active { cursor: grabbing; }
+
+.grid-shelf-item-thumb {
+    width: 100%;
+    height: 44px;
+    object-fit: contain;
+    margin-bottom: 4px;
+    pointer-events: none;
+}
+
+.grid-shelf-item-label {
+    /* width (not max-width): a hard, non-content-based size, same reasoning
+       as .grid-block-name — see makeMarqueeLabel() in grid-app.js, which
+       scrolls (rather than wraps) any label that doesn't fit on one line */
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-shelf-item-label.grid-marquee {
+    max-width: 100%;
+}
+
+#grid-canvas-wrap {
+    position: absolute;
+    /* header (dynamic, see --grid-header-h) + 176px shelf content (see #grid-shelf-content) */
+    top: calc(var(--grid-header-h, 64px) + 176px);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: auto;
+    transition: top 0.2s, left 0.2s;
+    background:
+        linear-gradient(var(--grid-cell-border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-cell-border) 1px, transparent 1px);
+    /* #grid-canvas is a fixed size (cols/rows * cellsize, see resizeCanvasEl())
+       usually narrower than the available width — center it instead of
+       leaving it flush against the left edge */
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+/* % (not vh) so this scales together with the rest of the page under the
+   transform-based zoom in grid-app.js — vh always measures the real,
+   unscaled viewport and would drift out of proportion with everything else */
+#grid-canvas-wrap.grid-has-panel { bottom: 50%; }
+
+#grid-canvas {
+    position: relative;
+}
+
+.grid-block {
+    position: absolute;
+    /* same look as the shelf tile: neutral body, category color as just the
+       top strip — not the whole block painted in that color */
+    background: #2a2a2a;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-top: 4px solid var(--grid-accent);
+    color: #fff;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    transition: box-shadow 0.1s, transform 0.1s;
+    /* explicit stacking order among canvas children — empty-cell placeholders
+       are re-appended (and so re-ordered to the DOM top) on almost every
+       change, which would otherwise put them above the cable layer and
+       silently swallow clicks meant for a cable running through them */
+    z-index: 3;
+}
+
+.grid-block:hover { box-shadow: 0 0 0 2px rgba(255,255,255,0.35); }
+
+/* The only layer that actually clips content — icon/name/led live in here, so
+   nothing they do (e.g. an unwrapped marquee track) can ever grow the block
+   itself past its fixed footprint. The intentionally edge-hanging bits
+   (remove button, connector handle, no-io markers) are siblings of this,
+   direct children of .grid-block, so they stay outside the clip on purpose. */
+.grid-block-inner {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    overflow: hidden;
+    /* belt-and-suspenders on top of overflow:hidden: layout containment is a
+       hard spec guarantee that this box's size can never depend on its
+       children's content, closing off any flexbox/line-clamp quirk that
+       could otherwise still push the block wider than its fixed footprint */
+    contain: layout paint style;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    font-size: 1.4rem;
+    font-weight: 600;
+    text-align: center;
+    padding: 6px;
+}
+
+.grid-block.grid-block-selected {
+    box-shadow: 0 0 0 2px #fff;
+}
+
+.grid-block.grid-block-bypassed { opacity: 0.45; }
+
+.grid-block-name {
+    /* width (not max-width) so it's a hard, non-content-based size — a
+       flex item with align-items:center otherwise still grows to fit an
+       unwrapped marquee track's content and pushes past the block's edge */
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-block-icon {
+    width: 30px;
+    height: 30px;
+    margin-bottom: 4px;
+    color: rgba(255,255,255,0.85);
+    flex-shrink: 0;
+}
+
+.grid-block-name.grid-marquee {
+    max-width: 100%;
+}
+
+.grid-marquee-track {
+    display: inline-flex;
+    white-space: nowrap;
+    animation: grid-marquee-scroll 5s linear infinite;
+}
+
+.grid-marquee-track span { padding-right: 24px; }
+
+@keyframes grid-marquee-scroll {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.grid-block-led {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #3adb5e;
+    box-shadow: 0 0 4px #3adb5e;
+}
+
+.grid-block.grid-block-bypassed .grid-block-led {
+    background: #555;
+    box-shadow: none;
+}
+
+.grid-block-remove {
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #333;
+    border: 1px solid #666;
+    color: #ccc;
+    font-size: 1.4rem;
+    line-height: 24px;
+    text-align: center;
+    touch-action: manipulation;
+}
+
+.grid-block.grid-block-hardware {
+    background: #14351c;
+    border-color: #2f6b3a;
+}
+
+/* Fractal-style manual-connection handle: drag it onto another block to
+   request a cable between them (see grid-board.js addConnectorHandle). */
+.grid-block-handle {
+    position: absolute;
+    top: 50%;
+    right: -11px;
+    width: 22px;
+    height: 22px;
+    transform: translateY(-50%);
+    border-radius: 50%;
+    background: #444;
+    border: 2px solid #ccc;
+    cursor: grab;
+    touch-action: none;
+    z-index: 3;
+}
+
+.grid-block-handle:active { cursor: grabbing; background: var(--grid-accent); }
+
+/* Marks a block that can never be a connection source (no audio outputs) or
+   target (no audio inputs) — e.g. a generator plugin, an analyzer, or a
+   hardware In/Out block, which is only ever one or the other. */
+.grid-block-no-io {
+    position: absolute;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    transform: translateY(-50%);
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    border: 2px solid #c0392b;
+    z-index: 2;
+}
+
+.grid-block-no-io::before, .grid-block-no-io::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 12px;
+    height: 2px;
+    background: #c0392b;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.grid-block-no-io::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+.grid-block-no-io-in { left: -8px; }
+.grid-block-no-io-out { right: -8px; }
+
+.grid-cell-empty {
+    position: absolute;
+    border-radius: 6px;
+    border: 2px dashed rgba(200, 200, 200, 0.4);
+    z-index: 1; /* below #grid-cable-layer and .grid-block — see the comment on .grid-block */
+}
+
+.grid-cell-empty:hover {
+    border-color: rgba(200, 200, 200, 0.7);
+    background: rgba(255,255,255,0.04);
+}
+
+#grid-cable-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 2; /* above .grid-cell-empty, below .grid-block — see the comment on .grid-block */
+}
+
+#grid-cable-layer .grid-cable-line {
+    stroke: #cfcfcf;
+    stroke-width: 2;
+    opacity: 0.85;
+    pointer-events: none; /* the invisible .grid-cable-hit sibling underneath handles clicks/hover */
+}
+
+#grid-cable-layer .grid-cable-line.grid-cable-hover {
+    stroke: #ff6b6b;
+    stroke-width: 3;
+}
+
+/* A 2px stroke is a tiny, near-impossible click target, especially on touch.
+   This invisible, much fatter line sits right under the visible one (see
+   drawCableLine in grid-board.js) purely as a click/hover target — the
+   layer itself is pointer-events:none (so cables never block clicking
+   blocks underneath) but this specific element opts back in. */
+#grid-cable-layer .grid-cable-hit {
+    stroke: transparent;
+    stroke-width: 18;
+    fill: none;
+    pointer-events: stroke;
+    cursor: pointer;
+}
+
+#grid-cable-layer line.grid-cable-dragging, #grid-cable-layer path.grid-cable-dragging {
+    stroke: #fff;
+    stroke-width: 2.5;
+    stroke-dasharray: 4 3;
+    opacity: 0.9;
+}
+
+.grid-hidden { display: none !important; }
+
+/* ---- bottom parameter panel ---- */
+
+#grid-bottom-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* % (not vh), see the .grid-has-panel comment above */
+    height: 50%;
+    background: var(--grid-panel-bg-2);
+    border-top: 1px solid var(--grid-border);
+    display: flex;
+}
+
+#grid-panel-resize-height {
+    position: absolute;
+    top: -6px;
+    left: 0;
+    right: 0;
+    height: 12px;
+    cursor: row-resize;
+    touch-action: none;
+    z-index: 1;
+}
+
+#grid-panel-resize-height::after {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 4px auto;
+    border-radius: 2px;
+    background: #555;
+}
+
+#grid-panel-skin {
+    position: relative;
+    flex: 0 0 50%;
+    height: 100%;
+    /* the skin is scaled to fit instead of scrolled — see fitSkinToPane() */
+    overflow: hidden;
+    touch-action: none;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab; /* drag to reposition a zoomed-in skin — see bindSkinPan() */
+}
+
+.grid-skin-zoom-wrap {
+    transform-origin: center center;
+}
+
+#grid-panel-skin.grid-skin-panning {
+    cursor: grabbing;
+}
+
+#grid-skin-zoom-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+    z-index: 4;
+}
+
+#grid-skin-zoom-controls button {
+    min-width: 32px;
+    min-height: 32px;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid #4a4a4a;
+    border-radius: 5px;
+    font-size: 1.4rem;
+    cursor: pointer;
+    touch-action: manipulation;
+    opacity: 0.85;
+}
+
+#grid-skin-zoom-controls button:hover { opacity: 1; background: #3a3a3a; }
+
+#grid-panel-divider {
+    flex: 0 0 12px;
+    width: 12px;
+    height: 100%;
+    cursor: col-resize;
+    touch-action: none;
+    background: var(--grid-panel-bg-2);
+    border-left: 1px solid var(--grid-border);
+    border-right: 1px solid var(--grid-border);
+    position: relative;
+}
+
+#grid-panel-divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 40px;
+    transform: translate(-50%, -50%);
+    border-radius: 2px;
+    background: #555;
+}
+
+#grid-panel-generic {
+    flex: 1 1 auto;
+    height: 100%;
+    overflow-y: auto;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#grid-panel-close {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: none;
+    color: var(--grid-text-dim);
+    font-size: 1.4rem;
+    cursor: pointer;
+    touch-action: manipulation;
+    z-index: 2;
+}
+
+.grid-param-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.grid-param-name {
+    width: 130px;
+    flex-shrink: 0;
+    font-size: 1.4rem;
+    color: var(--grid-text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Sits between the name and the control on any row with a known LV2
+   default (see buildResetButton in grid-params.js) — omitted otherwise. */
+.grid-param-reset {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-radius: 50%;
+    font-size: 1.3rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+}
+
+.grid-param-reset:hover { color: var(--grid-text); border-color: var(--grid-accent); }
+
+.grid-param-control { flex: 1; display: flex; align-items: center; gap: 8px; }
+
+.grid-param-control input[type=range] {
+    flex: 1;
+    accent-color: var(--grid-accent);
+}
+
+.grid-param-value {
+    width: 56px;
+    text-align: right;
+    font-size: 1.4rem;
+    color: var(--grid-text-dim);
+    flex-shrink: 0;
+    cursor: text;
+}
+
+.grid-param-value-edit {
+    width: 100%;
+    background: #111;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-accent);
+    border-radius: 3px;
+    text-align: right;
+    font-size: 1.4rem;
+    font-family: inherit;
+    -moz-appearance: textfield;
+}
+
+/* LV2 preset row, above the connection rows at the very top of the generic
+   panel (see buildPresetRows() in grid-params.js). */
+#grid-preset-rows:not(:empty) {
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #333;
+}
+
+.grid-preset-control { flex-wrap: wrap; row-gap: 6px; }
+
+.grid-preset-select { flex: 1; min-width: 120px; }
+
+.grid-preset-btn {
+    flex-shrink: 0;
+    min-height: 36px;
+    padding: 3px 12px;
+    background: #111;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-border);
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.grid-preset-btn:disabled { opacity: 0.4; cursor: default; }
+.grid-preset-btn:not(:disabled):hover { border-color: var(--grid-accent); }
+
+.grid-preset-btn-danger:not(:disabled):hover { color: #fff; background: #b23a3a; border-color: #b23a3a; }
+
+/* Audio port connection rows, at the top of the generic panel (see
+   buildConnectionRows() in grid-params.js) — lives here instead of
+   overlaid on the skin, since the skin's own layout is arbitrary
+   third-party markup an overlay can end up covering unpredictably. */
+#grid-connection-rows:not(:empty) {
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #333;
+}
+
+.grid-connection-control {
+    flex-wrap: wrap;
+    row-gap: 6px;
+}
+
+.grid-connection-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #555;
+    flex-shrink: 0;
+}
+
+.grid-connection-dot.grid-connection-connected {
+    background: #3adb5e;
+    box-shadow: 0 0 4px #3adb5e;
+}
+
+.grid-connection-peer {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #2a2a2a;
+    border: 1px solid #4a4a4a;
+    border-radius: 10px;
+    padding: 2px 4px 2px 10px;
+    font-size: 1.3rem;
+    color: var(--grid-text);
+    white-space: nowrap;
+}
+
+.grid-connection-remove {
+    background: none;
+    border: none;
+    color: var(--grid-text-dim);
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+    border-radius: 50%;
+}
+
+.grid-connection-remove:hover { color: #fff; background: #b23a3a; }
+
+/* hide the native number spinner — it sits on top of the digits in a box this narrow */
+.grid-param-value-edit::-webkit-outer-spin-button,
+.grid-param-value-edit::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.grid-param-control select,
+.grid-param-control button.grid-toggle {
+    background: #111;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-border);
+    border-radius: 3px;
+    min-height: 36px;
+    padding: 3px 12px;
+    font-size: 1.4rem;
+    touch-action: manipulation;
+}
+
+.grid-param-control button.grid-toggle.grid-toggle-on {
+    background: var(--grid-accent);
+    border-color: #a24fb0;
+}
+
+#grid-notifications {
+    position: fixed;
+    top: 60px;
+    right: 16px;
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.grid-toast {
+    background: #2a2a2a;
+    border: 1px solid var(--grid-border);
+    border-left: 4px solid var(--grid-accent);
+    color: var(--grid-text);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 1.4rem;
+    max-width: 320px;
+}
+
+.grid-toast.grid-toast-error { border-left-color: #b23a3a; }
+
+/* ---- left-side bank/pedalboard/snapshot tree ---- */
+
+#grid-nav-backdrop {
+    position: absolute;
+    top: var(--grid-header-h, 64px);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 150;
+}
+
+/* Only when pinned does the panel claim its own space — shift the shelf and
+   canvas right so nothing sits underneath it (see grid-nav.js pin toggle).
+   Unpinned, the panel just floats over everything with its backdrop. */
+body.grid-nav-pinned #grid-shelf,
+body.grid-nav-pinned #grid-canvas-wrap {
+    left: 300px;
+}
+
+#grid-nav-panel {
+    position: absolute;
+    top: var(--grid-header-h, 64px);
+    left: 0;
+    bottom: 0;
+    width: 300px;
+    max-width: 85vw;
+    background: var(--grid-panel-bg-2);
+    border-right: 1px solid var(--grid-border);
+    box-shadow: 4px 0 16px rgba(0,0,0,0.5);
+    z-index: 151;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    overflow-y: auto;
+}
+
+#grid-nav-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#grid-nav-panel h2 {
+    font-size: 1.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--grid-text-dim);
+    margin: 4px 0 10px 4px;
+}
+
+.grid-nav-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+/* .grid-toolbar-action only gets its rounded corners, cursor and touch
+   sizing from the #grid-toolbar button scoped rule in the main header — this
+   button lives in the nav panel instead, so those need restating here. */
+#grid-nav-add {
+    flex: 0 0 auto;
+    border-radius: 5px;
+    line-height: 1;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+#grid-nav-pin {
+    flex: 0 0 auto;
+    min-width: 36px;
+    min-height: 36px;
+    background: #2a2a2a;
+    border: 1px solid #4a4a4a;
+    border-radius: 5px;
+    font-size: 1.4rem;
+    cursor: pointer;
+    opacity: 0.6;
+    touch-action: manipulation;
+}
+
+#grid-nav-pin.grid-nav-pin-active {
+    background: var(--grid-accent);
+    border-color: #a24fb0;
+    opacity: 1;
+}
+
+.grid-nav-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1.4rem;
+    touch-action: manipulation;
+}
+
+.grid-nav-row:hover { background: #333; }
+
+.grid-nav-row.grid-nav-current { color: var(--grid-accent); font-weight: 600; }
+
+.grid-nav-chevron {
+    flex: 0 0 14px;
+    color: var(--grid-text-dim);
+    font-size: 1.4rem;
+}
+
+/* Bank/pedalboard/snapshot glyph — same three used for New Snapshot in the
+   header toolbar, so a snapshot row and the button that creates one are
+   recognizable as the same kind of thing at a glance. */
+.grid-nav-icon {
+    flex: 0 0 auto;
+    font-size: 1.3rem;
+    line-height: 1;
+}
+
+.grid-nav-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-nav-action-btn {
+    flex: 0 0 auto;
+    min-width: 36px;
+    min-height: 36px;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid #4a4a4a;
+    border-radius: 5px;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.grid-nav-action-btn:hover { background: #3a3a3a; }
+
+.grid-nav-menu {
+    position: fixed;
+    z-index: 400;
+    background: #2a2a2a;
+    border: 1px solid var(--grid-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    padding: 4px;
+    min-width: 140px;
+}
+
+.grid-nav-menu-item {
+    padding: 8px 12px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    border-radius: 4px;
+    font-size: 1.4rem;
+    color: var(--grid-text);
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.grid-nav-menu-item:hover { background: #3a3a3a; }
+
+.grid-nav-menu-item-danger { color: #ff6b6b; }
+
+.grid-nav-children {
+    margin-left: 20px;
+    border-left: 1px solid var(--grid-border);
+}
+
+.grid-nav-snapshot { font-size: 1.4rem; }
+
+.grid-nav-empty {
+    padding: 6px 12px;
+    font-size: 1.4rem;
+    color: var(--grid-text-dim);
+    font-style: italic;
+}
+
+/* ---- ambiguous port-connection dialog ---- */
+
+#grid-connect-dialog {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#grid-file-manager-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.grid-file-manager-inner {
+    width: 92vw;
+    height: 88vh;
+    background: var(--grid-panel-bg-2);
+    border: 1px solid var(--grid-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.grid-file-manager-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--grid-border);
+    flex-shrink: 0;
+}
+
+.grid-file-manager-header h3 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--grid-text);
+    flex-shrink: 0;
+}
+
+.grid-fm-diskspace { color: var(--grid-text-dim); font-size: 1.3rem; flex: 1; }
+
+.grid-fm-toolbtn {
+    flex-shrink: 0;
+    min-height: 32px;
+    padding: 4px 12px;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    font-size: 1.4rem;
+    cursor: pointer;
+}
+
+.grid-fm-toolbtn:hover { border-color: var(--grid-accent); }
+.grid-fm-toolbtn:disabled { opacity: 0.4; cursor: default; }
+
+.grid-fm-view-toggle { display: flex; flex-shrink: 0; gap: 4px; }
+.grid-fm-view-toggle .grid-fm-toolbtn { padding: 4px 10px; }
+.grid-fm-view-toggle .grid-fm-view-active { background: var(--grid-accent); border-color: #a24fb0; color: #fff; }
+
+#grid-file-manager-close {
+    flex-shrink: 0;
+    min-width: 32px;
+    min-height: 32px;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    font-size: 1.8rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#grid-file-manager-close:hover { color: #fff; background: #b23a3a; }
+
+.grid-fm-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.grid-fm-tree {
+    width: 220px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    border-right: 1px solid var(--grid-border);
+    padding: 8px;
+}
+
+.grid-fm-tree-node { margin-left: 4px; }
+
+.grid-fm-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--grid-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.grid-fm-tree-row:hover { background: #2a2a2a; }
+.grid-fm-tree-current { background: var(--grid-accent); color: #fff; }
+.grid-fm-tree-root { font-weight: bold; margin-left: 0; }
+
+.grid-fm-tree-chevron {
+    flex-shrink: 0;
+    width: 14px;
+    text-align: center;
+    color: var(--grid-text-dim);
+}
+
+.grid-fm-tree-label { overflow: hidden; text-overflow: ellipsis; }
+
+.grid-fm-tree-children { margin-left: 16px; }
+
+.grid-fm-tree-empty { color: var(--grid-text-dim); font-size: 1.3rem; padding: 4px 8px; opacity: 0.6; }
+
+.grid-fm-drop-hover { outline: 2px dashed var(--grid-accent); outline-offset: -2px; background: rgba(136,57,150,0.2); }
+
+.grid-fm-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.grid-fm-breadcrumb {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--grid-border);
+    color: var(--grid-text-dim);
+}
+
+.grid-fm-crumb { cursor: pointer; }
+.grid-fm-crumb:hover { color: var(--grid-text); text-decoration: underline; }
+.grid-fm-crumb-sep { margin: 0 4px; }
+
+.grid-fm-grid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 10px;
+    padding: 14px;
+    align-content: start;
+}
+
+.grid-fm-empty { grid-column: 1 / -1; text-align: center; color: var(--grid-text-dim); padding: 40px; }
+
+.grid-fm-tile {
+    position: relative;
+    background: var(--grid-panel-bg);
+    border: 1px solid var(--grid-border);
+    border-radius: 6px;
+    padding: 10px 6px 6px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+}
+
+.grid-fm-tile:hover { border-color: var(--grid-accent); }
+
+.grid-fm-tile-icon { font-size: 3.2rem; line-height: 1; }
+
+.grid-fm-tile-name {
+    color: var(--grid-text);
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-fm-tile-size { font-size: 1.3rem; color: var(--grid-text-dim); }
+
+.grid-fm-tile-actions {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.grid-fm-tile:hover .grid-fm-tile-actions { opacity: 1; }
+
+.grid-fm-tile-action {
+    width: 20px;
+    height: 20px;
+    line-height: 1;
+    padding: 0;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-radius: 50%;
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.grid-fm-tile-action:hover { color: #fff; border-color: var(--grid-accent); }
+.grid-fm-tile-action-danger:hover { color: #fff; background: #b23a3a; border-color: #b23a3a; }
+
+.grid-fm-list {
+    flex: 1;
+    overflow: auto;
+}
+
+.grid-fm-list table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 1.3rem;
+}
+
+.grid-fm-list th {
+    position: sticky;
+    top: 0;
+    background: var(--grid-panel-bg-2);
+    color: var(--grid-text-dim);
+    text-align: left;
+    font-weight: 600;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--grid-border);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.grid-fm-list th:hover { color: var(--grid-text); }
+
+.grid-fm-list td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--grid-border);
+    color: var(--grid-text);
+    white-space: nowrap;
+}
+
+.grid-fm-list-row { cursor: pointer; }
+.grid-fm-list-row:hover { background: #2a2a2a; }
+
+.grid-fm-list-col-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0;
+    width: 40%;
+}
+
+.grid-fm-list-icon { margin-right: 8px; }
+
+.grid-fm-list-name-text {
+    display: inline-block;
+    max-width: calc(100% - 24px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.grid-fm-list-col-ext, .grid-fm-list-col-size { color: var(--grid-text-dim); }
+.grid-fm-list-col-date { color: var(--grid-text-dim); font-variant-numeric: tabular-nums; }
+.grid-fm-list-col-actions { width: 1%; text-align: right; }
+
+.grid-fm-list-actions.grid-fm-tile-actions {
+    position: static;
+    opacity: 1;
+    justify-content: flex-end;
+}
+
+/* ---- plugin store ---- */
+
+#grid-store-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.grid-store-inner {
+    width: 92vw;
+    height: 88vh;
+    background: var(--grid-panel-bg-2);
+    border: 1px solid var(--grid-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.grid-store-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--grid-border);
+    flex-shrink: 0;
+}
+
+.grid-store-header h3 { margin: 0; font-size: 1.5rem; color: var(--grid-text); flex-shrink: 0; }
+
+#grid-store-search {
+    flex: 1;
+    min-width: 80px;
+    background: #111;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: 1.4rem;
+    font-family: inherit;
+}
+
+#grid-store-count { flex-shrink: 0; color: var(--grid-text-dim); font-size: 1.3rem; }
+
+#grid-store-close {
+    flex-shrink: 0;
+    min-width: 32px;
+    min-height: 32px;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    font-size: 1.8rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#grid-store-close:hover { color: #fff; background: #b23a3a; }
+
+.grid-store-filters, .grid-store-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 14px;
+    flex-shrink: 0;
+}
+
+.grid-store-tabs { border-bottom: 1px solid var(--grid-border); }
+
+.grid-store-filter-btn, .grid-store-tab {
+    background: #111;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.grid-store-filter-active, .grid-store-tab-active {
+    background: var(--grid-accent);
+    border-color: #a24fb0;
+    color: #fff;
+}
+
+.grid-store-grid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+    padding: 14px;
+    align-content: start;
+}
+
+.grid-store-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--grid-text-dim);
+    padding: 40px;
+}
+
+.grid-store-card {
+    background: var(--grid-panel-bg);
+    border: 1px solid var(--grid-border);
+    border-radius: 6px;
+    padding: 8px;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.grid-store-card:hover { border-color: var(--grid-accent); }
+
+.grid-store-card-thumb {
+    width: 100%;
+    aspect-ratio: 1;
+    background: #111;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.grid-store-card-thumb img { width: 100%; height: 100%; object-fit: contain; }
+
+.grid-store-card-name {
+    font-size: 1.3rem;
+    color: var(--grid-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-store-card-author {
+    font-size: 1.1rem;
+    color: var(--grid-text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-store-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    font-size: 1rem;
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: #333;
+    color: var(--grid-text);
+}
+
+.grid-store-badge-installed { background: #3a6b3a; }
+.grid-store-badge-outdated { background: #8a6a1e; }
+.grid-store-badge-unavailable { background: #6a3a3a; }
+.grid-store-badge-local { background: #444; }
+
+#grid-store-detail-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 510;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.grid-store-detail-inner {
+    width: 520px;
+    max-width: 92vw;
+    max-height: 85vh;
+    overflow-y: auto;
+    background: var(--grid-panel-bg-2);
+    border: 1px solid var(--grid-border);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.grid-store-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.grid-store-detail-header h3 { margin: 0; font-size: 1.6rem; color: var(--grid-text); }
+
+.grid-store-detail-close {
+    flex-shrink: 0;
+    min-width: 32px;
+    min-height: 32px;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    font-size: 1.8rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.grid-store-detail-close:hover { color: #fff; background: #b23a3a; }
+
+.grid-store-detail-shot {
+    max-width: 100%;
+    max-height: 220px;
+    display: block;
+    margin: 0 auto 12px;
+    border-radius: 4px;
+}
+
+.grid-store-detail-row { font-size: 1.3rem; color: var(--grid-text-dim); margin-bottom: 4px; }
+.grid-store-detail-row span { color: var(--grid-text); }
+
+.grid-store-detail-comment { font-size: 1.3rem; color: var(--grid-text); margin: 10px 0; white-space: pre-wrap; }
+
+.grid-store-detail-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+.grid-store-link-btn {
+    font-size: 1.2rem;
+    color: var(--grid-text);
+    background: #111;
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    padding: 4px 10px;
+    text-decoration: none;
+}
+
+.grid-store-link-btn:hover { border-color: var(--grid-accent); }
+
+.grid-store-detail-actions { display: flex; gap: 10px; }
+
+.grid-store-action-btn {
+    min-height: 36px;
+    padding: 6px 16px;
+    background: var(--grid-accent);
+    color: #fff;
+    border: 1px solid #a24fb0;
+    border-radius: 5px;
+    font-size: 1.4rem;
+    cursor: pointer;
+}
+
+.grid-store-action-btn:disabled { opacity: 0.4; cursor: default; }
+
+.grid-store-action-danger { background: #6a3a3a; border-color: #b23a3a; }
+
+.grid-connect-inner {
+    width: 380px;
+    max-width: 90vw;
+    max-height: 80vh;
+    background: var(--grid-panel-bg-2);
+    border: 1px solid var(--grid-border);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#grid-connect-title {
+    margin: 0;
+    font-size: 1.4rem;
+    color: var(--grid-text);
+}
+
+#grid-connect-hint {
+    margin: 0;
+    font-size: 1.4rem;
+    color: var(--grid-text-dim);
+}
+
+#grid-connect-rows {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.grid-connect-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.grid-connect-port-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 1.4rem;
+    color: var(--grid-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-connect-row select {
+    flex: 1;
+    min-width: 0;
+    min-height: 40px;
+    background: #111;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-border);
+    border-radius: 4px;
+    font-size: 1.4rem;
+}
+
+.grid-connect-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+#grid-connect-cancel {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 16px;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid #4a4a4a;
+    border-radius: 5px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+/* ---- settings ---- */
+
+#grid-settings-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.grid-settings-inner {
+    width: 380px;
+    max-width: 90vw;
+    background: var(--grid-panel-bg-2);
+    border: 1px solid var(--grid-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.grid-settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--grid-border);
+}
+
+.grid-settings-header h3 { margin: 0; font-size: 1.5rem; color: var(--grid-text); }
+
+#grid-settings-close {
+    flex-shrink: 0;
+    min-width: 32px;
+    min-height: 32px;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    font-size: 1.8rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#grid-settings-close:hover { color: #fff; background: #b23a3a; }
+
+.grid-settings-body { padding: 16px; }
+
+.grid-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.grid-settings-label { color: var(--grid-text); }
+
+.grid-settings-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.grid-settings-control button {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0 10px;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.grid-settings-control button:hover { border-color: var(--grid-accent); }
+
+#grid-settings-classic-ui {
+    display: inline-block;
+    min-height: 36px;
+    line-height: 36px;
+    padding: 0 12px;
+    background: #2a2a2a;
+    color: var(--grid-text);
+    border: 1px solid var(--grid-border);
+    border-radius: 5px;
+    text-decoration: none;
+    touch-action: manipulation;
+}
+
+#grid-settings-classic-ui:hover { border-color: var(--grid-accent); }
+
+#grid-settings-font-pct { min-width: 44px; text-align: center; color: var(--grid-text-dim); }

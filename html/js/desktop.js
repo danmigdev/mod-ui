@@ -1307,7 +1307,12 @@ function Desktop(elements) {
         document.location.href = '/settings';
     })
 
+    elements.gridThemeIcon.click(function() {
+        document.location.href = '/grid.html';
+    })
+
     elements.settingsIcon.statusTooltip()
+    elements.gridThemeIcon.statusTooltip()
     elements.pedalboardTrigger.statusTooltip()
     elements.pedalboardBoxTrigger.statusTooltip()
     elements.bankBoxTrigger.statusTooltip()

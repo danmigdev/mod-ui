@@ -1,0 +1,16 @@
+/* SPDX-FileCopyrightText: 2012-2023 MOD Audio UG */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+/* Creation actions (new pedalboard / snapshot / bank) reuse the existing
+   .grid-toolbar-group / .grid-toolbar-action look from grid-dashboard.css;
+   this file only adds the accent that marks them as "create" actions. */
+
+.grid-toolbar-action.grid-manage-new {
+    background: #2a2a2a !important;
+    border-color: #4a8a4a !important;
+    color: #cfe8cf !important;
+}
+
+.grid-toolbar-action.grid-manage-new:hover {
+    background: #33403a !important;
+}
