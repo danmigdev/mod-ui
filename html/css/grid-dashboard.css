@@ -1743,6 +1743,33 @@ body.grid-nav-pinned #grid-canvas-wrap {
     justify-content: center;
 }
 
+/* Above every other overlay (z-index 1000 vs. the highest of the rest at
+   510) — once the device is off nothing underneath is usable anyway, so
+   this should cover it all rather than risk sitting behind a dialog that
+   happened to be open. */
+#grid-shutdown-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--grid-bg);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+#grid-shutdown-message h2 {
+    margin: 0 0 10px;
+    font-size: 2.4rem;
+    color: var(--grid-text);
+}
+
+#grid-shutdown-message p {
+    margin: 0;
+    font-size: 1.6rem;
+    color: var(--grid-text-dim);
+}
+
 .grid-store-detail-inner {
     width: 520px;
     max-width: 92vw;

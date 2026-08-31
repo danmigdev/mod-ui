@@ -157,6 +157,19 @@
 
 <div id="grid-notifications"></div>
 
+<!-- Shown after a confirmed Power Off instead of the generic "Connection
+     lost, retrying" toast — that wording is misleading once the device is
+     deliberately shutting down (see the expectingShutdown flag in
+     grid-app.js). Reconnect attempts keep running quietly underneath in case
+     the shutdown didn't actually happen; a successful reconnect hides this
+     again automatically. -->
+<div id="grid-shutdown-overlay" class="grid-hidden">
+    <div id="grid-shutdown-message">
+        <h2>System is off</h2>
+        <p>It's safe to disconnect power now.</p>
+    </div>
+</div>
+
 <div id="grid-connect-dialog" class="grid-hidden">
     <div class="grid-connect-inner">
         <h3 id="grid-connect-title">Connect ports</h3>

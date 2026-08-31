@@ -564,6 +564,12 @@ var wsReconnectDelay = 1000
 var wsReconnectMaxDelay = 10000
 var wsReconnectTimer = null
 var wsHadDisconnect = false
+// Set right after the backend confirms it accepted a Power Off — the
+// websocket drop that follows is then expected, not an error (see
+// ws.onclose below and #grid-shutdown-overlay in grid.html). Reconnect
+// attempts still run underneath in case the shutdown didn't actually
+// go through; a successful reconnect clears it.
+var expectingShutdown = false
 
 function scheduleReconnect() {
     if (wsReconnectTimer) return
@@ -579,6 +585,12 @@ function connectWebSocket() {
 
     ws.onopen = function () {
         wsReconnectDelay = 1000
+        if (expectingShutdown) {
+            // it reconnected after all — the shutdown didn't happen (or was
+            // a reboot), so drop back to the normal "lost/reconnected" wording
+            expectingShutdown = false
+            $('#grid-shutdown-overlay').addClass('grid-hidden')
+        }
         if (wsHadDisconnect) {
             notify('info', 'Reconnected')
             wsHadDisconnect = false
@@ -587,7 +599,11 @@ function connectWebSocket() {
 
     ws.onclose = function () {
         wsHadDisconnect = true
-        notify('error', 'Connection to the device was lost, retrying...')
+        if (expectingShutdown) {
+            $('#grid-shutdown-overlay').removeClass('grid-hidden')
+        } else {
+            notify('error', 'Connection to the device was lost, retrying...')
+        }
         // the reconnect gets a fresh pedalboard replay (loading_start..add..connect..loading_end),
         // so drop whatever local state we had rather than risk it going stale/duplicated
         GridBoard.reset()
@@ -1233,8 +1249,12 @@ $(document).ready(function () {
             type: 'POST',
             data: { type: 'command', cmd: 'poweroff' },
             success: function (resp) {
-                if (resp) notify('info', 'Shutting down...')
-                else notify('error', "Couldn't power off the device")
+                if (resp) {
+                    expectingShutdown = true
+                    notify('info', 'Shutting down...')
+                } else {
+                    notify('error', "Couldn't power off the device")
+                }
             },
             error: function () { notify('error', "Couldn't power off the device") },
             cache: false,
