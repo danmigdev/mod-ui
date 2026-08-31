@@ -1,0 +1,21 @@
+// SPDX-FileCopyrightText: 2012-2023 MOD Audio UG
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// mod-ui's own Power Off / Reboot actions (see SystemExeChange.poweroff/reboot
+// in mod/webserver.py) run as the unprivileged, non-interactive service user
+// that mod-ui itself runs under -- with no logind session of its own, so
+// policykit's default login1 policy (only an *active* session, or explicit
+// authentication, may power off/reboot) denies it outright: authentication
+// can never be supplied by a headless service, so the action fails silently
+// every time. Grant it to members of the "audio" group instead -- the group
+// mod-ui's realtime audio service is expected to run under -- so the device's
+// own power button in the UI works without any manual setup after install.
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.login1.power-off" ||
+         action.id == "org.freedesktop.login1.power-off-multiple-sessions" ||
+         action.id == "org.freedesktop.login1.reboot" ||
+         action.id == "org.freedesktop.login1.reboot-multiple-sessions") &&
+        subject.isInGroup("audio")) {
+        return polkit.Result.YES;
+    }
+});
