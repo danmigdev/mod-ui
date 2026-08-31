@@ -614,16 +614,20 @@ class SystemExeChange(JsonRequestHandler):
     @gen.coroutine
     def reboot(self):
         os_sync()
-        # -i: ignore inhibitors/other logged-in sessions (e.g. an admin SSH'd
-        # in) — this is a physical/UI power action on an embedded device, not
-        # a desktop session that should be blocked by someone else being
-        # logged in elsewhere.
-        yield gen.Task(run_command, ["reboot", "-i"], None)
+        # The bare "reboot"/"poweroff" binaries are systemd's sysvinit-halt
+        # compat shim (see halt(8)) — a different, smaller option set than
+        # "systemctl reboot/poweroff" that does NOT understand -i, so it
+        # can't be told to ignore inhibitors this way. Call systemctl's own
+        # verb form instead, where -i/--ignore-inhibitors is real: without
+        # it, this refuses to run whenever another session is logged in
+        # (e.g. an admin SSH'd in) — wrong for a physical/UI power action on
+        # an embedded device.
+        yield gen.Task(run_command, ["systemctl", "reboot", "-i"], None)
 
     @gen.coroutine
     def poweroff(self):
         os_sync()
-        yield gen.Task(run_command, ["poweroff", "-i"], None)
+        yield gen.Task(run_command, ["systemctl", "poweroff", "-i"], None)
 
 class SystemCleanup(JsonRequestHandler):
     @gen.coroutine
