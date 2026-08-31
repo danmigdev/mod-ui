@@ -614,12 +614,16 @@ class SystemExeChange(JsonRequestHandler):
     @gen.coroutine
     def reboot(self):
         os_sync()
-        yield gen.Task(run_command, ["reboot"], None)
+        # -i: ignore inhibitors/other logged-in sessions (e.g. an admin SSH'd
+        # in) — this is a physical/UI power action on an embedded device, not
+        # a desktop session that should be blocked by someone else being
+        # logged in elsewhere.
+        yield gen.Task(run_command, ["reboot", "-i"], None)
 
     @gen.coroutine
     def poweroff(self):
         os_sync()
-        yield gen.Task(run_command, ["poweroff"], None)
+        yield gen.Task(run_command, ["poweroff", "-i"], None)
 
 class SystemCleanup(JsonRequestHandler):
     @gen.coroutine
