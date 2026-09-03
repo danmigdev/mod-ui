@@ -38,3 +38,8 @@ utils/test
 *node_modules/
 .idea
 *.egg-info
+
+# TONE3000 publishable key -- deployment config, never committed (see mod/settings.py)
+tone3000-client-id
+*.env
+.env

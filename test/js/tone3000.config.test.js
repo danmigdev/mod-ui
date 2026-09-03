@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /*
- * tone3000Box when the build has no real TONE3000 key.
+ * tone3000Box when the deployment has no TONE3000 key.
  *
- * mod/settings.py ships "t3k_pub_REPLACE_ME" as the default client id so a fresh install
- * has something; MOD_TONE3000_CLIENT_ID overrides it. Until one of them is a real
- * t3k_pub_ value the flow cannot start, and the panel has to say so rather than opening
- * a popup that would only fail at TONE3000.
+ * The publishable key is never committed: it comes from MOD_TONE3000_CLIENT_ID or a key
+ * file (see mod/settings.py), so it can legitimately be empty. "t3k_pub_REPLACE_ME" is
+ * also treated as unset, in case a fork hardcodes the placeholder. Either way the flow
+ * cannot start and the panel has to say so rather than opening a popup that only fails
+ * at TONE3000.
  *
  * Driven against the REAL html/js/tone3000.js.
  */
