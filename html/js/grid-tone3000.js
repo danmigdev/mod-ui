@@ -108,11 +108,13 @@ var GridTone3000 = (function () {
     var SORTS = [['trending', 'Trending'], ['newest', 'Newest'],
                  ['downloads-all-time', 'Most downloaded'], ['best-match', 'Best match']]
 
-    var overlay, gridEl, searchInput, countEl, statusEl, sortSel, pagerEl
+    var overlay, gridEl, searchInput, countEl, statusEl, sortSel
     var detailOverlay, detailInner, connectBar
     var connectPopup = null
     var refreshing = null
     var searchSeq = 0
+    var loading = false
+    var shownCount = 0
     var query = '', sort = 'trending', page = 1, totalPages = 1
 
     // ── token storage ───────────────────────────────────────────────────────
@@ -253,8 +255,18 @@ var GridTone3000 = (function () {
     function sanitize(name) {
         return String(name).replace(/[\/\\:*?"<>|\x00-\x1f]/g, '-').replace(/\s+/g, ' ').trim()
     }
+    // The download folder is named after the tone's own page URL -- its stable,
+    // public identity (e.g. .../tones/1234-fender-deluxe -> "1234-fender-deluxe").
+    // Falls back to the title when the URL is missing or unusable.
     function folderFor(tone) {
-        return (sanitize(tone.title) || ('Tone ' + tone.id)) + ' (' + tone.id + ')'
+        var slug = ''
+        if (tone.url) {
+            try {
+                var parts = new URL(tone.url, TONE3000_API).pathname.split('/').filter(Boolean)
+                slug = sanitize(parts[parts.length - 1] || '')
+            } catch (e) { /* fall through */ }
+        }
+        return slug || ((sanitize(tone.title) || ('Tone ' + tone.id)) + ' (' + tone.id + ')')
     }
     function fileNamesFor(tone, models) {
         var title = sanitize(tone.title) || ('Tone ' + tone.id)
@@ -273,22 +285,59 @@ var GridTone3000 = (function () {
         catch (e) { return (/\.nam(\?|$)/i).test(model.model_url || '') }
     }
 
-    // ── search ──────────────────────────────────────────────────────────────
-    function doSearch() {
-        var seq = ++searchSeq
-        statusEl.text('Searching…')
-        gridEl.empty()
-        var qs = new URLSearchParams({ format: 'nam', sort: sort, page: String(page), page_size: '30' })
+    // ── search (infinite scroll) ───────────────────────────────────────────
+    var PAGE_SIZE = 48
+
+    // append === false starts a fresh search; append === true adds the next page
+    function doSearch(append) {
+        if (loading) return
+        var seq = append ? searchSeq : ++searchSeq
+        if (!append) { page = 1; shownCount = 0; gridEl.empty() }
+        loading = true
+        statusEl.text(append ? 'Loading more…' : 'Searching…')
+        var qs = new URLSearchParams({ format: 'nam', sort: sort, page: String(page), page_size: String(PAGE_SIZE) })
         if (query) qs.set('query', query)
         apiGet('/api/v1/tones/search?' + qs.toString()).then(function (res) {
+            loading = false
             if (seq !== searchSeq) return
             totalPages = res.total_pages || 1
-            renderResults(res.data || [])
+            addResults(res.data || [], append)
         }).catch(function (e) {
+            loading = false
             if (seq !== searchSeq) return
             statusEl.text(e && e.message || String(e))
             if (!isConnected()) renderDisconnected()
         })
+    }
+
+    function addResults(tones, append) {
+        statusEl.text('')
+        if (!append) {
+            gridEl.empty()
+            if (!tones.length) {
+                gridEl.append($('<div class="grid-t3k-empty">').text('No NAM tones found'))
+                countEl.text('')
+                return
+            }
+        }
+        tones.forEach(function (tone) { gridEl.append(buildCard(tone)) })
+        shownCount += tones.length
+        var more = page < totalPages
+        countEl.text(shownCount + ' shown' + (more ? ' — scroll for more' : ''))
+        // keep pulling pages until the grid is scrollable, so it always fills the space
+        if (more) setTimeout(maybeLoadMore, 0)
+    }
+
+    function maybeLoadMore() {
+        if (loading || page >= totalPages || !isConnected()) return
+        var el = gridEl[0]
+        if (!el) return
+        var nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 500
+        var notFilled = el.scrollHeight <= el.clientHeight + 4
+        if (nearBottom || notFilled) {
+            page += 1
+            doSearch(true)
+        }
     }
 
     // ── render ──────────────────────────────────────────────────────────────
@@ -296,17 +345,17 @@ var GridTone3000 = (function () {
         connectBar.toggleClass('grid-hidden', !isConnected())
         if (!configured()) { renderNotConfigured(); return }
         if (!isConnected()) { renderDisconnected(); return }
-        doSearch()
+        doSearch(false)
     }
 
     function renderNotConfigured() {
-        statusEl.text(''); countEl.text(''); pagerEl.empty()
+        statusEl.text(''); countEl.text('')
         gridEl.empty().append($('<div class="grid-t3k-empty">')
             .text('TONE3000 is not set up on this device -- see the TONE3000 section of the README.'))
     }
 
     function renderDisconnected() {
-        statusEl.text(''); countEl.text(''); pagerEl.empty()
+        statusEl.text(''); countEl.text('')
         gridEl.empty()
         var box = $('<div class="grid-t3k-connect-box">')
         box.append($('<p>').text('Connect your TONE3000 account to browse and download NAM captures.'))
@@ -314,19 +363,6 @@ var GridTone3000 = (function () {
         btn.click(connect)
         box.append(btn)
         gridEl.append(box)
-    }
-
-    function renderResults(tones) {
-        statusEl.text('')
-        gridEl.empty()
-        countEl.text(tones.length ? (tones.length + ' shown' + (totalPages > 1 ? ' · page ' + page + '/' + totalPages : '')) : '')
-        if (!tones.length) {
-            gridEl.append($('<div class="grid-t3k-empty">').text('No NAM tones found'))
-            pagerEl.empty()
-            return
-        }
-        tones.forEach(function (tone) { gridEl.append(buildCard(tone)) })
-        renderPager()
     }
 
     function buildCard(tone) {
@@ -344,16 +380,6 @@ var GridTone3000 = (function () {
         card.append(chips)
         card.click(function () { openDetail(tone) })
         return card
-    }
-
-    function renderPager() {
-        pagerEl.empty()
-        if (totalPages <= 1) return
-        var prev = $('<button type="button" class="grid-t3k-page-btn">').text('‹ Prev').prop('disabled', page <= 1)
-        prev.click(function () { if (page > 1) { page--; render() } })
-        var next = $('<button type="button" class="grid-t3k-page-btn">').text('Next ›').prop('disabled', page >= totalPages)
-        next.click(function () { if (page < totalPages) { page++; render() } })
-        pagerEl.append(prev).append($('<span class="grid-t3k-page-num">').text(page + ' / ' + totalPages)).append(next)
     }
 
     // ── detail + download ───────────────────────────────────────────────────
@@ -397,31 +423,44 @@ var GridTone3000 = (function () {
                 return
             }
             var names = fileNamesFor(tone, nam)
+            var folder = folderFor(tone)
+            list.append($('<p class="grid-t3k-folder-note">').text('Saved to NAM Models / ' + folder))
+
             var picks = []
             nam.forEach(function (m, i) {
                 var row = $('<label class="grid-t3k-model-row">')
                 var light = m.size === 'nano' || m.size === 'feather'
                 var cb = $('<input type="checkbox">').prop('checked', nam.length === 1 || light)
-                picks.push({ cb: cb, model: m, name: names[i] })
-                row.append(cb)
+                var statusIco = $('<span class="grid-t3k-model-status">')
+                row.append(cb).append(statusIco)
                 row.append($('<span class="grid-t3k-model-name">').text(m.name).attr('title', names[i]))
                 var tag = (m.size || '?') + (SIZE_HINT[m.size] ? ' · ' + SIZE_HINT[m.size] : '') +
                           ' · arch ' + (m.architecture_version || '?')
                 row.append($('<span class="grid-t3k-model-tag grid-t3k-size-' + m.size + '">').text(tag))
                 list.append(row)
+                picks.push({
+                    model: m, name: names[i],
+                    checked: function () { return cb.prop('checked') },
+                    state: function (s) {
+                        row.attr('data-state', s || '')
+                        cb.css('display', s ? 'none' : '')
+                        statusIco.html(
+                            s === 'downloading' ? '<span class="grid-t3k-spin"></span>' :
+                            s === 'saved' ? '&#10003;' : s === 'failed' ? '&#10005;' : '')
+                    }
+                })
             })
 
-            var hint = nam.some(function (m) { return m.size === 'standard' })
-            if (hint) {
+            if (nam.some(function (m) { return m.size === 'standard' })) {
                 list.append($('<p class="grid-t3k-size-note">').text(
                     'Tip: "standard" models are the heaviest on CPU. On a Pi, prefer nano / feather / lite.'))
             }
 
             var btn = $('<button type="button" class="grid-t3k-action-btn">').text('Add selected to NAM Models')
             btn.click(function () {
-                var chosen = picks.filter(function (p) { return p.cb.prop('checked') })
+                var chosen = picks.filter(function (p) { return p.checked() })
                 if (!chosen.length) { notify('info', 'Select at least one model first'); return }
-                downloadModels(tone, chosen, btn)
+                downloadModels(tone, chosen, actions)
             })
             actions.append(btn)
         }).catch(function (e) {
@@ -429,14 +468,22 @@ var GridTone3000 = (function () {
         })
     }
 
-    function downloadModels(tone, chosen, btn) {
-        btn.prop('disabled', true)
+    function downloadModels(tone, chosen, actions) {
         var folder = folderFor(tone)
-        notify('info', 'Downloading ' + chosen.length + ' model' + (chosen.length === 1 ? '' : 's') + '…')
+        var total = chosen.length
+        var done = 0, ok = 0
         var written = []
 
-        var chain = chosen.reduce(function (p, item) {
+        // swap the button for a live progress area
+        actions.empty()
+        var label = $('<div class="grid-t3k-progress-label">').text('Starting…')
+        var fill = $('<div class="grid-t3k-progress-fill">')
+        actions.append(label).append($('<div class="grid-t3k-progress-track">').append(fill))
+
+        var chain = chosen.reduce(function (p, item, idx) {
             return p.then(function () {
+                item.state('downloading')
+                label.text('Downloading "' + item.model.name + '"  ·  ' + (idx + 1) + ' / ' + total)
                 return accessToken().then(function (tok) {
                     return fetch(item.model.model_url, { headers: { Authorization: 'Bearer ' + tok } })
                 }).then(function (r) {
@@ -453,24 +500,33 @@ var GridTone3000 = (function () {
                     if (!r.ok) throw new Error('upload HTTP ' + r.status)
                     return r.json()
                 }).then(function (saved) {
-                    written.push(saved.fullname)
+                    item.state('saved'); ok += 1; written.push(saved.fullname)
+                }).catch(function (e) {
+                    item.state('failed')
+                    notify('error', 'Failed: ' + item.model.name + ' (' + (e && e.message || e) + ')')
+                }).then(function () {
+                    done += 1
+                    fill.css('width', Math.round(done / total * 100) + '%')
                 })
             })
         }, Promise.resolve())
 
         chain.then(function () {
-            notify('info', written.length + ' model' + (written.length === 1 ? '' : 's') +
-                   ' added to NAM Models')
-            detailOverlay.addClass('grid-hidden')
-            // If a NAM plugin's params panel is open, refresh its file dropdown in place
-            // (feature-detected: only present where modgui.js carries the change).
-            var gui = (typeof GridParams !== 'undefined' && GridParams.currentGui) ? GridParams.currentGui() : null
-            if (gui && gui.refreshFileTypesLists) {
-                gui.refreshFileTypesLists('nammodel', written)
+            label.text(ok === total
+                ? ('Done — ' + total + ' saved to NAM Models / ' + folder)
+                : (ok + ' of ' + total + ' saved to NAM Models / ' + folder))
+            if (ok) {
+                notify('info', ok + ' model' + (ok === 1 ? '' : 's') + ' added to NAM Models')
+                // If a NAM plugin's params panel is open, refresh its file dropdown in place
+                // (feature-detected: only present where modgui.js carries the change).
+                var gui = (typeof GridParams !== 'undefined' && GridParams.currentGui) ? GridParams.currentGui() : null
+                if (gui && gui.refreshFileTypesLists) {
+                    gui.refreshFileTypesLists('nammodel', written)
+                }
             }
-        }).catch(function (e) {
-            notify('error', 'Download failed: ' + (e && e.message || e))
-            btn.prop('disabled', false)
+            var closeBtn = $('<button type="button" class="grid-t3k-action-btn">').text('Done')
+            closeBtn.click(function () { detailOverlay.addClass('grid-hidden') })
+            actions.append(closeBtn)
         })
     }
 
@@ -488,7 +544,6 @@ var GridTone3000 = (function () {
             countEl = $('#grid-t3k-count')
             statusEl = $('#grid-t3k-status')
             sortSel = $('#grid-t3k-sort')
-            pagerEl = $('#grid-t3k-pager')
             connectBar = $('#grid-t3k-connectbar')
             detailOverlay = $('#grid-t3k-detail-overlay')
             detailInner = $('#grid-t3k-detail-inner')
@@ -509,11 +564,13 @@ var GridTone3000 = (function () {
                 clearTimeout(deb)
                 deb = setTimeout(function () {
                     query = searchInput.val().trim()
-                    page = 1
                     render()
                 }, 300)
             })
-            sortSel.on('change', function () { sort = sortSel.val(); page = 1; render() })
+            sortSel.on('change', function () { sort = sortSel.val(); render() })
+
+            // infinite scroll: pull the next page as the grid nears its end
+            gridEl.on('scroll', maybeLoadMore)
         },
         open: function () { overlay.removeClass('grid-hidden'); render() },
         close: function () { overlay.addClass('grid-hidden'); detailOverlay.addClass('grid-hidden') },

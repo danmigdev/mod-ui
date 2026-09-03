@@ -84,10 +84,17 @@ test('buildAuthorizeUrl: S256, our redirect_uri, state persisted', async () => {
     assert.ok(ctx.window.sessionStorage.getItem('t3k_code_verifier'))
 })
 
-test('filename scheme: folder carries the id, collisions get the model id', () => {
-    const { folderFor, fileNamesFor } = T3K._internals
-    // sanitize() maps / : " to '-' and collapses whitespace
-    assert.equal(folderFor({ id: 42, title: 'Fender / "65"' }), 'Fender - -65- (42)')
+test('folder is named after the tone URL slug, with a title fallback', () => {
+    const { folderFor } = T3K._internals
+    assert.equal(folderFor({ id: 5, title: 'x', url: 'https://www.tone3000.com/tones/1234-fender-deluxe' }),
+                 '1234-fender-deluxe')
+    assert.equal(folderFor({ id: 5, title: 'x', url: '/tones/9f3a' }), '9f3a')
+    // no url -> "<title> (<id>)"
+    assert.equal(folderFor({ id: 42, title: 'Marshall JCM800' }), 'Marshall JCM800 (42)')
+})
+
+test('filename scheme: collisions get the model id', () => {
+    const { fileNamesFor } = T3K._internals
     const tone = { id: 7, title: 'Marshall JCM800' }
     const names = fileNamesFor(tone, [{ id: 1, name: 'Clean' }, { id: 2, name: 'Clean' }, { id: 3, name: 'Crunch' }])
     assert.equal(names[0], 'Marshall JCM800 - Clean.nam')
