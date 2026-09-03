@@ -2023,6 +2023,18 @@ body.grid-nav-pinned #grid-canvas-wrap {
 
 /* ─── TONE3000 (grid-tone3000.js) ─────────────────────────────────────────── */
 
+/* Toolbar button carries the TONE3000 "T3K" logo instead of a glyph -- same
+   44px touch target as the other icon buttons, no text. */
+#grid-tone3000-toggle {
+    width: 44px !important;
+    padding: 0 !important;
+    background-image: url(../img/tone3000-icon.png) !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 28px 28px !important;
+    font-size: 0 !important;
+}
+
 #grid-t3k-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
