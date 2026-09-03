@@ -40,6 +40,7 @@
     {% autoescape None %}
     VERSION = '{{version}}'
     var SAMPLERATE = {{sampleRate}}
+    var BUFFER_SIZE = {{bufferSize}}
     var DEFAULT_ICON_TEMPLATE = '{{default_icon_template}}'
     var DEFAULT_SETTINGS_TEMPLATE = '{{default_settings_template}}'
     var BUNDLE_PATH = '{{bundlepath}}'
@@ -313,6 +314,18 @@
                     <span id="grid-settings-font-pct">100%</span>
                     <button id="grid-settings-font-inc" title="Larger">+</button>
                     <button id="grid-settings-font-reset" title="Reset to default">Reset</button>
+                </div>
+            </div>
+            <div class="grid-settings-row">
+                <span class="grid-settings-label">Audio buffer
+                    <span class="grid-settings-hint">bigger = more CPU headroom, more latency</span>
+                </span>
+                <div class="grid-settings-control">
+                    <span class="grid-settings-seg">
+                        <button type="button" id="grid-buffer-128" data-size="128">128</button>
+                        <button type="button" id="grid-buffer-256" data-size="256">256</button>
+                    </span>
+                    <span class="grid-settings-label" style="min-width:auto">frames</span>
                 </div>
             </div>
             <div class="grid-settings-row">

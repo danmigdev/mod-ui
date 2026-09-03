@@ -69,8 +69,10 @@ mod-ui ships two independent front-end themes, both served by the same backend:
 - **Grid** (``/grid.html``): a newer, Fractal Audio FM3-Edit-style editor, with plugins as
   uniform blocks in a configurable row/column grid, a single auto-wired signal chain, and
   parameters edited in a bottom panel (real plugin skin on one side, a generic control list on
-  the other). Still missing some of the default theme's features (bank/preset cloud sharing,
-  control-chain device management, tuner).
+  the other). It has its own plugin store, file manager, TONE3000 browser, snapshots and an
+  audio-buffer setting. Still missing several of the default theme's features: transport /
+  tempo, the MIDI-ports dialog, CV-port management, control-chain device management, cloud
+  bank/preset sharing, the tuner, the RAM meter and the update check.
 
 Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
 and "Classic UI" under Settings in the grid theme.

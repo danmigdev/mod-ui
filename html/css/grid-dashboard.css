@@ -1992,9 +1992,39 @@ body.grid-nav-pinned #grid-canvas-wrap {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    margin-bottom: 12px;
 }
+.grid-settings-row:last-child { margin-bottom: 0; }
 
 .grid-settings-label { color: var(--grid-text); }
+.grid-settings-hint {
+    display: block;
+    font-size: 1.15rem;
+    color: var(--grid-text-dim);
+    font-weight: normal;
+}
+
+/* segmented 128 / 256 buttons */
+.grid-settings-seg { display: inline-flex; }
+.grid-settings-seg button {
+    min-width: 44px;
+    min-height: 36px;
+    padding: 0 10px;
+    background: #2a2a2a;
+    color: var(--grid-text-dim);
+    border: 1px solid var(--grid-border);
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.grid-settings-seg button:first-child { border-radius: 5px 0 0 5px; }
+.grid-settings-seg button:last-child { border-radius: 0 5px 5px 0; border-left: none; }
+.grid-settings-seg button:hover { color: var(--grid-text); }
+.grid-settings-seg button.grid-settings-seg-active {
+    background: var(--grid-accent);
+    border-color: #a24fb0;
+    color: #fff;
+}
+.grid-settings-seg button:disabled { opacity: 0.5; cursor: default; }
 
 .grid-settings-control {
     display: flex;
