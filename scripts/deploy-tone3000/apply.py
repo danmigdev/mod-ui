@@ -151,6 +151,81 @@ MAIN_CSS_BLOCK = '''
 #tone3000-wrapper .tone3000-autoopen:hover{color:#ccc}
 '''
 
+# The grid theme's file manager talks to /filesvc/* and /filesvc-stat/*; the
+# handlers behind them were never committed upstream (see the matching commit in
+# mod/webserver.py). Injected here for devices whose webserver.py predates it.
+# The import is tried under tornado4 first -- on-device `tornado` is aliased to
+# `tornado4`, and importing tornado.httpclient there loads a second copy whose
+# HTTPError won't match what simple_httpclient raises.
+FILEMANAGER_BLOCK = '''# --- grid theme file manager (proxy + stat) ---
+try:
+    from tornado4.httpclient import AsyncHTTPClient as _T3kHTTPClient, HTTPError as _T3kHTTPError
+except ImportError:
+    from tornado.httpclient import AsyncHTTPClient as _T3kHTTPClient, HTTPError as _T3kHTTPError
+from urllib.parse import quote as _t3k_quote, unquote as _t3k_unquote
+
+class FileManagerProxy(TimelessRequestHandler):
+    @web.asynchronous
+    @gen.coroutine
+    def get(self, path):
+        yield self._proxy(path)
+
+    @web.asynchronous
+    @gen.coroutine
+    def post(self, path):
+        yield self._proxy(path)
+
+    @gen.coroutine
+    def _proxy(self, path):
+        url = "http://127.0.0.1:8081/" + _t3k_quote(path or '', safe='/')
+        if self.request.query:
+            url += "?" + self.request.query
+        headers = {}
+        ct = self.request.headers.get('Content-Type')
+        if ct:
+            headers['Content-Type'] = ct
+        body = self.request.body if self.request.method in ('POST', 'PUT') else None
+        try:
+            response = yield _T3kHTTPClient().fetch(
+                url, method=self.request.method, headers=headers, body=body,
+                follow_redirects=False, request_timeout=30)
+        except _T3kHTTPError as e:
+            if e.response is None:
+                self.set_status(502)
+                self.finish()
+                return
+            response = e.response
+        self.set_status(response.code)
+        rct = response.headers.get('Content-Type')
+        if rct:
+            self.set_header('Content-Type', rct)
+        self.finish(response.body or b'')
+
+class FileManagerStat(JsonRequestHandler):
+    def get(self, path):
+        base = os.path.realpath(USER_FILES_DIR)
+        target = os.path.realpath(os.path.join(base, _t3k_unquote(path or '')))
+        if target != base and not target.startswith(base + os.sep):
+            raise web.HTTPError(403)
+        if not os.path.isdir(target):
+            raise web.HTTPError(404)
+        entries = []
+        for name in os.listdir(target):
+            full = os.path.join(target, name)
+            try:
+                fst = os.stat(full)
+            except OSError:
+                continue
+            isdir = os.path.isdir(full)
+            entries.append({
+                'name': name, 'isDir': isdir,
+                'extension': '' if isdir else os.path.splitext(name)[1].lstrip('.'),
+                'size': fst.st_size, 'mtime': fst.st_mtime, 'ctime': fst.st_ctime,
+            })
+        self.write(entries)
+
+'''
+
 # The four blocks desktop.js already has, used as anchors so the insertion lands
 # right after the matching File Manager wiring.
 FM_BOX_DEFAULT = "        fileManagerBoxTrigger: $('<div>'),\n"
@@ -175,10 +250,11 @@ WHOLE_PREPEND = "\x00PREPEND\x00"
 
 
 def edits_for(mod_dir, html_dir):
-    """Return {abs_path: (marker, [(anchor, replacement), ...])}.
+    """Return {abs_path: (label, [(anchor, replacement[, guard]), ...])}.
 
-    An edit with anchor == "" and replacement starting with WHOLE_APPEND /
-    WHOLE_PREPEND is a whole-file append / prepend of the text that follows.
+    Each edit is skipped when its `guard` substring is already in the file, so
+    the whole set is idempotent edit-by-edit. anchor == "" with a replacement
+    starting WHOLE_APPEND / WHOLE_PREPEND is a whole-file append / prepend.
     """
     ws = os.path.join(mod_dir, "webserver.py")
     st = os.path.join(mod_dir, "settings.py")
@@ -187,53 +263,79 @@ def edits_for(mod_dir, html_dir):
     cs = os.path.join(html_dir, "css", "main.css")
 
     return {
-        st: ("TONE3000_CLIENT_ID", [("", WHOLE_APPEND + SETTINGS_BLOCK)]),
+        st: ("settings.py", [
+            ("", WHOLE_APPEND + SETTINGS_BLOCK, "TONE3000_CLIENT_ID"),
+        ]),
 
-        ws: ("TONE3000_CLIENT_ID", [
+        ws: ("webserver.py", [
             ("\nfrom mod import (\n",
-             "\nfrom mod.settings import TONE3000_CLIENT_ID, TONE3000_API\n\nfrom mod import (\n"),
+             "\nfrom mod.settings import TONE3000_CLIENT_ID, TONE3000_API\n\nfrom mod import (\n",
+             "from mod.settings import TONE3000_CLIENT_ID"),
             ("            'sampleRate': get_jack_sample_rate(),\n            'patchstorage_enabled':",
              "            'sampleRate': get_jack_sample_rate(),\n"
              "            'tone3000_client_id': TONE3000_CLIENT_ID,\n"
              "            'tone3000_api': TONE3000_API,\n"
-             "            'patchstorage_enabled':"),
+             "            'patchstorage_enabled':",
+             "'tone3000_client_id': TONE3000_CLIENT_ID"),
             ("\nsettings = {'log_function': lambda handler: None} if not LOG else {}\n",
-             "\n" + FILESUPLOAD_CLASS + "settings = {'log_function': lambda handler: None} if not LOG else {}\n"),
+             "\n" + FILESUPLOAD_CLASS + "settings = {'log_function': lambda handler: None} if not LOG else {}\n",
+             "class FilesUpload("),
             ('            (r"/files/list/?", FilesList),\n',
              '            (r"/files/list/?", FilesList),\n'
-             '            (r"/files/upload/([a-z]+)/?", FilesUpload),\n'),
+             '            (r"/files/upload/([a-z]+)/?", FilesUpload),\n',
+             '(r"/files/upload/([a-z]+)/?", FilesUpload)'),
+            # grid theme file manager -- proxy + stat, never committed upstream
+            ("\nclass EffectImage(TimelessStaticFileHandler):\n",
+             "\n" + FILEMANAGER_BLOCK + "class EffectImage(TimelessStaticFileHandler):\n",
+             "class FileManagerProxy("),
+            ('            (r"/resources/(.*)", EffectResource),\n',
+             '            (r"/resources/(.*)", EffectResource),\n'
+             '            (r"/filesvc-stat/(.*)", FileManagerStat),\n'
+             '            (r"/filesvc/(.*)", FileManagerProxy),\n',
+             '(r"/filesvc/(.*)", FileManagerProxy)'),
         ]),
 
-        ix: ("tone3000", [
+        ix: ("index.html", [
             ("    LV2_PLUGIN_DIR   = '{{lv2_plugin_dir}}'\n",
              "    LV2_PLUGIN_DIR   = '{{lv2_plugin_dir}}'\n"
              "    TONE3000_CLIENT_ID = '{{tone3000_client_id}}'\n"
-             "    TONE3000_API       = '{{tone3000_api}}'\n"),
+             "    TONE3000_API       = '{{tone3000_api}}'\n",
+             "TONE3000_CLIENT_ID = '{{tone3000_client_id}}'"),
             ("        fileManagerBoxTrigger: $('#main-menu #mod-file-manager'),\n",
              "        fileManagerBoxTrigger: $('#main-menu #mod-file-manager'),\n"
              "        tone3000Box: $('#tone3000-library'),\n"
-             "        tone3000BoxTrigger: $('#main-menu #mod-tone3000'),\n"),
+             "        tone3000BoxTrigger: $('#main-menu #mod-tone3000'),\n",
+             "tone3000Box: $('#tone3000-library')"),
             ('<script type="text/javascript" src="js/file_manager.js?v={{version}}"></script>\n',
              '<script type="text/javascript" src="js/file_manager.js?v={{version}}"></script>\n'
-             '<script type="text/javascript" src="js/tone3000.js?v={{version}}"></script>\n'),
+             '<script type="text/javascript" src="js/tone3000.js?v={{version}}"></script>\n',
+             'src="js/tone3000.js'),
             ('        <div id="mod-cloud-plugins" class="icon" data-message="Plugin Store"></div>\n',
              '        <div id="mod-cloud-plugins" class="icon" data-message="Plugin Store"></div>\n'
-             '        <div id="mod-tone3000" class="icon" data-message="Tone3000"></div>\n'),
+             '        <div id="mod-tone3000" class="icon" data-message="Tone3000"></div>\n',
+             'id="mod-tone3000"'),
             ("    <!-- END FILE MANAGER -->\n",
-             "    <!-- END FILE MANAGER -->\n" + TONE3000_PANEL),
+             "    <!-- END FILE MANAGER -->\n" + TONE3000_PANEL,
+             "<!-- TONE3000 -->"),
         ]),
 
-        dk: ("tone3000", [
+        dk: ("desktop.js", [
             (FM_BOX_DEFAULT,
-             FM_BOX_DEFAULT + "        tone3000Box: $('<div>'),\n        tone3000BoxTrigger: $('<div>'),\n"),
+             FM_BOX_DEFAULT + "        tone3000Box: $('<div>'),\n        tone3000BoxTrigger: $('<div>'),\n",
+             "tone3000Box: $('<div>')"),
             (FM_BOX_MAKE,
              FM_BOX_MAKE + "    this.tone3000Box = self.makeTone3000Box(elements.tone3000Box,\n"
-             "                                            elements.tone3000BoxTrigger)\n"),
-            (FM_BOX_TOOLTIP, FM_BOX_TOOLTIP + "    elements.tone3000BoxTrigger.statusTooltip()\n"),
-            (FM_BOX_PROTOTYPE, FM_BOX_PROTOTYPE + MAKE_TONE3000_BOX),
+             "                                            elements.tone3000BoxTrigger)\n",
+             "self.makeTone3000Box(elements.tone3000Box"),
+            (FM_BOX_TOOLTIP, FM_BOX_TOOLTIP + "    elements.tone3000BoxTrigger.statusTooltip()\n",
+             "tone3000BoxTrigger.statusTooltip()"),
+            (FM_BOX_PROTOTYPE, FM_BOX_PROTOTYPE + MAKE_TONE3000_BOX,
+             "Desktop.prototype.makeTone3000Box"),
         ]),
 
-        cs: ("mod-tone3000", [("", WHOLE_APPEND + MAIN_CSS_BLOCK)]),
+        cs: ("main.css", [
+            ("", WHOLE_APPEND + MAIN_CSS_BLOCK, "/* TONE3000 */"),
+        ]),
     }
 
 
@@ -315,12 +417,13 @@ def do_rollback(edits, html_dir, key_file):
 def apply_file(path, marker, edits, dry_run):
     with open(path, "r", encoding="utf-8") as fh:
         src = fh.read()
-    if marker in src:
-        print("  = already patched, skipping:", path)
-        return False
 
     new = src
-    for anchor, repl in edits:
+    for edit in edits:
+        anchor, repl = edit[0], edit[1]
+        guard = edit[2] if len(edit) > 2 else None
+        if guard is not None and guard in new:
+            continue  # this edit is already applied
         if anchor == "":
             if repl.startswith(WHOLE_APPEND):
                 body = repl[len(WHOLE_APPEND):]
@@ -339,7 +442,8 @@ def apply_file(path, marker, edits, dry_run):
         new = new.replace(anchor, repl, 1)
 
     if new == src:
-        raise SystemExit("ABORT: no change produced for " + path)
+        print("  = already patched, skipping:", path)
+        return False
 
     if not dry_run:
         bak = path + BACKUP_SUFFIX
