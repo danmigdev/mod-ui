@@ -6,6 +6,9 @@ jobs:
   notification:
     runs-on: ubuntu-latest
     name: IRC notification
+    # Only the upstream repo notifies #modaudio -- a fork pushing there is both
+    # noise and a flaky external dependency (the IRC action often can't connect).
+    if: github.repository == 'moddevices/mod-ui'
     steps:
       - name: Format message
         id: message
