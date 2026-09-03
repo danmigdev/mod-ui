@@ -1,0 +1,118 @@
+// SPDX-FileCopyrightText: 2012-2023 MOD Audio UG
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+/*
+ * GridTone3000 -- the grid theme's embedded TONE3000 browser.
+ *
+ * Driven against the REAL html/js/grid-tone3000.js. jsdom has no layout, no real
+ * window.open and (here) no fetch, so this covers the PKCE, the authorize URL, the
+ * filename scheme, the configured/connected gating and the disconnected render --
+ * not the popup placement or live API calls.
+ */
+
+const { test, beforeEach } = require('node:test')
+const assert = require('node:assert')
+const nodeCrypto = require('node:crypto')
+const { makeWindow } = require('./harness')
+
+let ctx, $, T3K
+
+function base64url(buf) {
+    return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+}
+
+const BODY =
+    '<div id="grid-tone3000-toggle"></div>' +
+    '<div id="grid-t3k-overlay" class="grid-hidden"><div class="grid-t3k-inner">' +
+    '  <div class="grid-t3k-header">' +
+    '    <input id="grid-t3k-search"><select id="grid-t3k-sort"></select>' +
+    '    <span id="grid-t3k-count"></span>' +
+    '    <span id="grid-t3k-connectbar" class="grid-hidden"><button id="grid-t3k-disconnect"></button></span>' +
+    '    <button id="grid-t3k-close"></button>' +
+    '  </div>' +
+    '  <div id="grid-t3k-status"></div><div id="grid-t3k-grid"></div><div id="grid-t3k-pager"></div>' +
+    '</div></div>' +
+    '<div id="grid-t3k-detail-overlay" class="grid-hidden"><div id="grid-t3k-detail-inner"></div></div>'
+
+beforeEach(() => {
+    ctx = makeWindow({ url: 'http://192.168.1.20/', body: BODY })
+    $ = ctx.$
+    ctx.window.notify = () => {}
+    ctx.window.TONE3000_CLIENT_ID = 't3k_pub_realkey'
+    ctx.window.TONE3000_API = 'https://www.tone3000.com'
+    // insecure-context shape: getRandomValues but no subtle -> exercises the JS SHA-256
+    Object.defineProperty(ctx.window, 'crypto', {
+        value: { getRandomValues: (a) => { for (let i = 0; i < a.length; i++) a[i] = i & 255; return a } },
+        configurable: true,
+    })
+    ctx.window.btoa = (s) => Buffer.from(s, 'binary').toString('base64')
+    ctx.load('js/grid-tone3000.js')
+    T3K = ctx.window.GridTone3000
+    T3K.init()
+})
+
+test('configured() rejects the placeholder and empty, accepts a real key', () => {
+    const cfg = T3K._internals.configured
+    assert.equal(cfg(), true)
+    ctx.window.TONE3000_CLIENT_ID = 't3k_pub_REPLACE_ME'
+    assert.equal(cfg(), false)
+    ctx.window.TONE3000_CLIENT_ID = ''
+    assert.equal(cfg(), false)
+})
+
+test('SHA-256 fallback matches node crypto (RFC 7636 vector)', async () => {
+    const v = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
+    assert.equal(await T3K._internals.sha256B64url(v), 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM')
+    for (const s of ['', 'abc', 'x'.repeat(56), 'x'.repeat(64), base64url(nodeCrypto.randomBytes(32))]) {
+        const ref = base64url(nodeCrypto.createHash('sha256').update(s).digest())
+        assert.equal(await T3K._internals.sha256B64url(s), ref, 'len ' + s.length)
+    }
+})
+
+test('buildAuthorizeUrl: S256, our redirect_uri, state persisted', async () => {
+    const url = await T3K.buildAuthorizeUrl()
+    const u = new URL(url)
+    assert.equal(u.origin + u.pathname, 'https://www.tone3000.com/api/v1/oauth/authorize')
+    assert.equal(u.searchParams.get('client_id'), 't3k_pub_realkey')
+    assert.equal(u.searchParams.get('redirect_uri'), 'http://192.168.1.20/tone3000-connect.html')
+    assert.equal(u.searchParams.get('code_challenge_method'), 'S256')
+    assert.equal(u.searchParams.get('response_type'), 'code')
+    assert.equal(u.searchParams.get('format'), 'nam')
+    const state = u.searchParams.get('state')
+    assert.ok(state && state.length > 10)
+    assert.equal(ctx.window.sessionStorage.getItem('t3k_state'), state)
+    assert.ok(ctx.window.sessionStorage.getItem('t3k_code_verifier'))
+})
+
+test('filename scheme: folder carries the id, collisions get the model id', () => {
+    const { folderFor, fileNamesFor } = T3K._internals
+    // sanitize() maps / : " to '-' and collapses whitespace
+    assert.equal(folderFor({ id: 42, title: 'Fender / "65"' }), 'Fender - -65- (42)')
+    const tone = { id: 7, title: 'Marshall JCM800' }
+    const names = fileNamesFor(tone, [{ id: 1, name: 'Clean' }, { id: 2, name: 'Clean' }, { id: 3, name: 'Crunch' }])
+    assert.equal(names[0], 'Marshall JCM800 - Clean.nam')
+    assert.equal(names[1], 'Marshall JCM800 - Clean (2).nam')
+    assert.equal(names[2], 'Marshall JCM800 - Crunch.nam')
+})
+
+test('open() when not connected shows the Connect button, no search', () => {
+    let fetched = false
+    ctx.window.fetch = () => { fetched = true; return Promise.reject(new Error('no')) }
+    T3K.open()
+    assert.equal($('#grid-t3k-overlay').hasClass('grid-hidden'), false)
+    assert.match($('#grid-t3k-grid').text(), /Connect your TONE3000 account/i)
+    assert.equal($('#grid-t3k-grid button').length, 1)
+    assert.equal(fetched, false)
+})
+
+test('open() when the key is a placeholder shows the not-set-up message', () => {
+    ctx.window.TONE3000_CLIENT_ID = 't3k_pub_REPLACE_ME'
+    T3K.open()
+    assert.match($('#grid-t3k-grid').text(), /not set up on this device/i)
+})
+
+test('receiveTokens stores tokens and flips isConnected', () => {
+    assert.equal(T3K.isConnected(), false)
+    T3K.receiveTokens({ access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600000 })
+    assert.equal(T3K.isConnected(), true)
+})
