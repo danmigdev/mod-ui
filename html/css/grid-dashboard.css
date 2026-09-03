@@ -888,6 +888,7 @@ body.grid-shelf-collapsed #grid-canvas-wrap { top: var(--grid-header-h, 64px); }
     flex: 1 1 auto;
     height: 100%;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 12px 16px;
     display: flex;
     flex-direction: column;
@@ -913,6 +914,7 @@ body.grid-shelf-collapsed #grid-canvas-wrap { top: var(--grid-header-h, 64px); }
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
 }
 
 .grid-param-name {
@@ -943,7 +945,7 @@ body.grid-shelf-collapsed #grid-canvas-wrap { top: var(--grid-header-h, 64px); }
 
 .grid-param-reset:hover { color: var(--grid-text); border-color: var(--grid-accent); }
 
-.grid-param-control { flex: 1; display: flex; align-items: center; gap: 8px; }
+.grid-param-control { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 
 .grid-param-control input[type=range] {
     flex: 1;
@@ -1070,6 +1072,16 @@ body.grid-shelf-collapsed #grid-canvas-wrap { top: var(--grid-header-h, 64px); }
     padding: 3px 12px;
     font-size: 1.4rem;
     touch-action: manipulation;
+}
+
+/* A file/path parameter's <select> would otherwise size to its widest option
+   (a full ".nam" path) and push a horizontal scrollbar onto the panel. Cap it
+   to the row and let the selected value ellipsize. */
+.grid-param-control select {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+    text-overflow: ellipsis;
 }
 
 .grid-param-control button.grid-toggle.grid-toggle-on {
