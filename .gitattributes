@@ -1,0 +1,4 @@
+# Deploy scripts are run through sh/python on Linux devices; keep them LF even
+# when checked out on Windows so a stray CR never breaks a shebang or a command.
+scripts/deploy-tone3000/*.sh text eol=lf
+scripts/deploy-tone3000/*.py text eol=lf
