@@ -84,8 +84,15 @@ CONTROLCHAIN_HTTP_ADDRESS = os.environ.pop('MOD_CONTROLCHAIN_HTTP_ADDRESS',
                                            "https://download.mod.audio/releases/cc-firmware/v3")
 
 # Tone3000 integration. The client id is the OAuth publishable key (t3k_pub_...),
-# a public value: it identifies the app, it grants no data access on its own.
-TONE3000_CLIENT_ID = os.environ.get('MOD_TONE3000_CLIENT_ID', "")
+# a public value: it identifies the app, it grants no data access on its own, and
+# TONE3000 keeps it stable across secret rotation precisely so it can be embedded.
+#
+# Ship a real key here so the feature works on a fresh install with no configuration.
+# To get one: sign in at tone3000.com -> Settings -> API Keys -> Create API Key, and
+# leave that key's allowed redirect URIs empty so any device address is accepted (the
+# PKCE verifier and the state check are what protect the flow). MOD_TONE3000_CLIENT_ID
+# overrides this at runtime for a rebranded build or local development.
+TONE3000_CLIENT_ID = os.environ.get('MOD_TONE3000_CLIENT_ID', "t3k_pub_REPLACE_ME")
 TONE3000_API = os.environ.get('MOD_TONE3000_API', "https://www.tone3000.com")
 
 MIDI_BEAT_CLOCK_SENDER_URI = "urn:mod:mclk"

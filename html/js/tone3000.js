@@ -225,9 +225,18 @@ function tone3000PlacePopup (popup, bounds) {
     })
 }
 
+/* A build ships a real publishable key in mod/settings.py and MOD_TONE3000_CLIENT_ID
+   overrides it; until one of them is a real t3k_pub_ value the flow cannot start, so
+   the shipped "t3k_pub_REPLACE_ME" placeholder counts as not configured. */
+function tone3000Configured () {
+    return !!TONE3000_CLIENT_ID && TONE3000_CLIENT_ID !== 't3k_pub_REPLACE_ME'
+}
+
 function tone3000OpenSelectPopup () {
-    if (!TONE3000_CLIENT_ID) {
-        alert('TONE3000 is not configured on this device: MOD_TONE3000_CLIENT_ID is not set.')
+    if (!tone3000Configured()) {
+        alert('TONE3000 is not set up in this build. A publishable API key (t3k_pub_...) ' +
+              'has to be baked into mod/settings.py or passed as MOD_TONE3000_CLIENT_ID -- ' +
+              'see the TONE3000 section of the README.')
         return
     }
 
@@ -326,10 +335,22 @@ JqueryClass('tone3000Box', {
 
         self.data(options)
 
-        self.find('#tone3000-browse').click(function () {
-            tone3000OpenSelectPopup()
-            return false
-        })
+        var configured = tone3000Configured()
+
+        var browse = self.find('#tone3000-browse')
+        if (configured) {
+            browse.click(function () {
+                tone3000OpenSelectPopup()
+                return false
+            })
+        } else {
+            /* Nothing to sign into -- say so in the panel rather than only on click, and
+               drop a pointer for whoever is putting the image together. */
+            browse.prop('disabled', true).text('TONE3000 not set up in this build')
+            $('<p class="tone3000-hint">').text(
+                'This build has no TONE3000 publishable key. See the TONE3000 section of the README.'
+            ).appendTo(self.find('#tone3000-wrapper'))
+        }
 
         var autoOpen = self.find('#tone3000-autoopen')
         autoOpen.prop('checked', tone3000AutoOpen())
@@ -345,7 +366,7 @@ JqueryClass('tone3000Box', {
            the popup there meant every trip through another tab threw away the user's place
            in the catalog. The popup outlives the panel; only leaving the page closes it. */
         options.open = function () {
-            if (tone3000AutoOpen()) {
+            if (configured && tone3000AutoOpen()) {
                 tone3000OpenSelectPopup()
             }
             return false
