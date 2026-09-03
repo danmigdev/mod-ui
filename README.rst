@@ -74,3 +74,26 @@ mod-ui ships two independent front-end themes, both served by the same backend:
 
 Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
 and "Classic UI" under Settings in the grid theme.
+
+Test
+----
+
+The test suite in ``test/`` contains HTTP-level characterization tests (pytest + tornado's testing tools).
+They run against a faked audio backend, so no JACK, mod-host or MOD hardware is needed.
+
+First complete the Install section above (virtualenv, python requirements and ``make -C utils`` — the tests
+import the webserver, which requires ``utils/libmod_utils.so``).
+
+On Python 3.10 or newer, the pinned tornado 4.3 needs a one-time patch (see the note in ``requirements.txt``)::
+
+    $ sed -i 's/collections.MutableMapping/collections.abc.MutableMapping/' modui-env/lib/python3.*/site-packages/tornado/httputil.py
+
+Install the test requirements and run the suite from the repository root::
+
+    $ source modui-env/bin/activate
+    $ pip3 install -r test-requirements.txt
+    $ pytest
+
+NOTE: ``test/hmi-protocol-integrationtest.py`` is not part of this suite — it is a standalone integration
+test for the HMI serial protocol that requires JACK, mod-host and a serial device, and pytest does not
+collect it.
