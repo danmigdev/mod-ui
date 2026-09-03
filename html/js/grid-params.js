@@ -449,32 +449,16 @@ var GridParams = (function () {
             skinUserZoom = Math.max(MIN_USER_ZOOM, skinUserZoom / 1.2)
             applySkinTransform()
         })
-        // Wheel over the skin zooms it -- unless the pointer is over an open,
-        // actually-overflowing scrollable box inside the skin (NAM's model list,
-        // a preset list, ...), in which case the wheel scrolls that instead.
+        // Wheel zooms the skin -- but only from the pane around it (the letterbox
+        // margins / the zoom-control strip), never while the pointer is over the
+        // plugin GUI itself. There the wheel is left alone, so the skin's own
+        // scrollable widgets (NAM's model list, a preset list) keep working.
         skinPane.on('wheel', function (ev) {
-            var oe = ev.originalEvent || ev
-
-            var scroller = $(ev.target).closest(
-                '.mod-enumerated-list, .mod-file-list, [mod-widget="custom-select-path"], [mod-widget="custom-select"]')[0]
-            if (!scroller) {
-                var node = ev.target
-                while (node && node !== skinPane[0] && node.nodeType === 1) {
-                    var oy = getComputedStyle(node).overflowY
-                    if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') &&
-                        node.scrollHeight > node.clientHeight + 1) {
-                        scroller = node
-                        break
-                    }
-                    node = node.parentNode
-                }
+            if ($(ev.target).closest('.grid-skin-zoom-wrap').length) {
+                return
             }
-            if (scroller && $(scroller).is(':visible') &&
-                scroller.scrollHeight > scroller.clientHeight + 1) {
-                return  // let the list take the wheel
-            }
-
             ev.preventDefault()
+            var oe = ev.originalEvent || ev
             var factor = oe.deltaY < 0 ? 1.1 : 1 / 1.1
             skinUserZoom = Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, skinUserZoom * factor))
             applySkinTransform()
