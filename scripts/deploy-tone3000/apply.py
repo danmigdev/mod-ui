@@ -293,6 +293,13 @@ def edits_for(mod_dir, html_dir):
              '            (r"/filesvc-stat/(.*)", FileManagerStat),\n'
              '            (r"/filesvc/(.*)", FileManagerProxy),\n',
              '(r"/filesvc/(.*)", FileManagerProxy)'),
+            # /grid.html renders with the same bootstrap context as / (index)
+            ("\n    def pedalboard(self):\n",
+             "\n    def grid(self):\n"
+             "        # Independent \"grid\" theme: same bootstrap data as the default theme.\n"
+             "        return self.index()\n"
+             "\n    def pedalboard(self):\n",
+             "\n    def grid(self):\n"),
         ]),
 
         ix: ("index.html", [
@@ -351,11 +358,24 @@ ASSETS = [
     ("tone3000-icon.png", ("img", "tone3000-icon.png"), False),
 ]
 
-# Only copied when the grid theme is present (grid.html already in html-dir).
+# The whole grid theme front-end. These are branch-owned static assets -- not
+# part of any distro package -- so they drop straight into the web root. The
+# only backend piece the grid theme needs is the grid() template route, added
+# to webserver.py above.
 GRID_ASSETS = [
-    ("grid-tone3000.js", ("js", "grid-tone3000.js"), False),
     ("grid.html", ("grid.html",), True),
+    ("grid-app.js", ("js", "grid-app.js"), True),
+    ("grid-board.js", ("js", "grid-board.js"), True),
+    ("grid-connect-dialog.js", ("js", "grid-connect-dialog.js"), True),
+    ("grid-file-manager.js", ("js", "grid-file-manager.js"), True),
+    ("grid-manage.js", ("js", "grid-manage.js"), True),
+    ("grid-nav.js", ("js", "grid-nav.js"), True),
+    ("grid-params.js", ("js", "grid-params.js"), True),
+    ("grid-settings.js", ("js", "grid-settings.js"), True),
+    ("grid-store.js", ("js", "grid-store.js"), True),
+    ("grid-tone3000.js", ("js", "grid-tone3000.js"), True),
     ("grid-dashboard.css", ("css", "grid-dashboard.css"), True),
+    ("grid-manage.css", ("css", "grid-manage.css"), True),
 ]
 
 

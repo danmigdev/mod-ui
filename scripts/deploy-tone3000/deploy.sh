@@ -49,10 +49,12 @@ ASSET_SRC=(
   "$REPO/html/tone3000-callback.html"
   "$REPO/html/tone3000-connect.html"
   "$REPO/html/img/tone3000-icon.png"
-  "$REPO/html/js/grid-tone3000.js"
   "$REPO/html/grid.html"
   "$REPO/html/css/grid-dashboard.css"
+  "$REPO/html/css/grid-manage.css"
 )
+# every grid-*.js the theme is made of
+for f in "$REPO"/html/js/grid-*.js; do ASSET_SRC+=("$f"); done
 for f in "${ASSET_SRC[@]}"; do
   [ -f "$f" ] || { echo "missing asset in repo: $f" >&2; exit 1; }
 done
