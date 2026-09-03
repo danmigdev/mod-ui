@@ -9,9 +9,8 @@ insertions and drops in three new files.
 
 New files copied into the web root:
 
-- `js/tone3000.js`
-- `tone3000-callback.html`
-- `img/tone3000-icon.png`
+- `js/tone3000.js`, `tone3000-callback.html`, `img/tone3000-icon.png` (default theme)
+- `tone3000-connect.html`, `js/grid-tone3000.js` (grid theme)
 
 Anchored insertions (each file backed up to `<file>.pre-tone3000` first):
 
@@ -23,9 +22,18 @@ Anchored insertions (each file backed up to `<file>.pre-tone3000` first):
 | `html/js/desktop.js` | `makeTone3000Box` wiring (four spots) |
 | `html/css/main.css` | the Tone3000 tab styling (appended) |
 
-`modgui.js` is **not** touched. Without its change, a tone downloaded while a NAM
-plugin is already on the board shows up after the next page reload rather than
-jumping to the top of the dropdown immediately. Everything else works.
+Grid theme (only when `grid.html` is present; `--no-grid` to skip). These are not
+part of any package and this branch owns them, so they are dropped in whole and
+backed up to `.pre-tone3000`:
+
+| File | Change |
+|---|---|
+| `html/grid.html` | bootstrap vars, script tag, toolbar button, overlay markup |
+| `html/css/grid-dashboard.css` | the grid TONE3000 styles |
+
+`modgui.js` is **not** touched in either theme. Without its change, a tone
+downloaded while a NAM plugin is already on the board shows up after the next page
+reload rather than in its dropdown immediately. Everything else works.
 
 ## The key
 

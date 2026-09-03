@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
     --host) HOST="$2"; shift 2 ;;
     --key)  KEY="$2";  shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
-    --dry-run|--rollback|--no-restart) PASS_ARGS+=("$1"); shift ;;
+    --dry-run|--rollback|--no-restart|--no-grid) PASS_ARGS+=("$1"); shift ;;
     --html-dir|--mod-dir|--data-dir|--service|--port) PASS_ARGS+=("$1" "$2"); shift 2 ;;
     -h|--help) sed -n '4,20p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -47,7 +47,11 @@ fi
 ASSET_SRC=(
   "$REPO/html/js/tone3000.js"
   "$REPO/html/tone3000-callback.html"
+  "$REPO/html/tone3000-connect.html"
   "$REPO/html/img/tone3000-icon.png"
+  "$REPO/html/js/grid-tone3000.js"
+  "$REPO/html/grid.html"
+  "$REPO/html/css/grid-dashboard.css"
 )
 for f in "${ASSET_SRC[@]}"; do
   [ -f "$f" ] || { echo "missing asset in repo: $f" >&2; exit 1; }

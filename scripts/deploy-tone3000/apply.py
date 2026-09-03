@@ -237,10 +237,23 @@ def edits_for(mod_dir, html_dir):
     }
 
 
+# (name in --assets, dest parts under html/, replaces_an_existing_file)
+# Replacements are backed up to <file>.pre-tone3000 and restored on rollback;
+# new files are just removed on rollback. The grid theme's own files
+# (grid.html, grid-dashboard.css) are safe to drop in whole -- they are not
+# part of any distro package and this branch owns them.
 ASSETS = [
-    ("tone3000.js", ("js", "tone3000.js")),
-    ("tone3000-callback.html", ("tone3000-callback.html",)),
-    ("tone3000-icon.png", ("img", "tone3000-icon.png")),
+    ("tone3000.js", ("js", "tone3000.js"), False),
+    ("tone3000-callback.html", ("tone3000-callback.html",), False),
+    ("tone3000-connect.html", ("tone3000-connect.html",), False),
+    ("tone3000-icon.png", ("img", "tone3000-icon.png"), False),
+]
+
+# Only copied when the grid theme is present (grid.html already in html-dir).
+GRID_ASSETS = [
+    ("grid-tone3000.js", ("js", "grid-tone3000.js"), False),
+    ("grid.html", ("grid.html",), True),
+    ("grid-dashboard.css", ("css", "grid-dashboard.css"), True),
 ]
 
 
@@ -275,18 +288,19 @@ def backups_of(paths):
 
 
 def do_rollback(edits, html_dir, key_file):
-    touched = list(edits) + [os.path.join(html_dir, *rel) for _, rel in ASSETS]
     restored, removed = [], []
     for path in list(edits):
         bak = path + BACKUP_SUFFIX
         if os.path.isfile(bak):
-            shutil.copymode(path, bak) if os.path.isfile(path) else None
             shutil.copyfile(bak, path)
             restored.append(path)
-    for _, rel in ASSETS:
+    for name, rel, replace in ASSETS + GRID_ASSETS:
         p = os.path.join(html_dir, *rel)
-        # only remove an asset we introduced (no backup of it means it wasn't there before)
-        if os.path.isfile(p) and not os.path.isfile(p + BACKUP_SUFFIX):
+        bak = p + BACKUP_SUFFIX
+        if replace and os.path.isfile(bak):
+            shutil.copyfile(bak, p)
+            restored.append(p)
+        elif not replace and os.path.isfile(p) and not os.path.isfile(bak):
             os.remove(p)
             removed.append(p)
     print("rolled back:")
@@ -347,7 +361,8 @@ def main():
                                   "If omitted, an existing key file at the destination is kept. "
                                   "Prefix with '@' to read it from a file, e.g. --key @/root/t3k.key")
     ap.add_argument("--assets", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets"),
-                    help="directory with tone3000.js, tone3000-callback.html, tone3000-icon.png")
+                    help="directory holding the asset files (tone3000*.js/html, the icon, and "
+                         "grid.html / grid-dashboard.css / grid-tone3000.js for the grid theme)")
     ap.add_argument("--html-dir", default="/usr/share/mod/html")
     ap.add_argument("--mod-dir", default="/usr/lib/python3/dist-packages/mod")
     ap.add_argument("--data-dir", default=None, help="where the key file goes (default: from the unit's MOD_DATA_DIR)")
@@ -355,6 +370,7 @@ def main():
     ap.add_argument("--port", default=None)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-restart", action="store_true")
+    ap.add_argument("--no-grid", action="store_true", help="skip the grid theme's TONE3000 files")
     ap.add_argument("--rollback", action="store_true")
     args = ap.parse_args()
 
@@ -388,7 +404,9 @@ def main():
         if not existing.startswith("t3k_pub_"):
             raise SystemExit("no --key given and no valid key at " + key_file)
         print("keeping existing key file:", key_file)
-    for name, _ in ASSETS:
+    grid_present = os.path.isfile(os.path.join(args.html_dir, "grid.html"))
+    wanted = ASSETS + (GRID_ASSETS if grid_present and not args.no_grid else [])
+    for name, _, _ in wanted:
         if not os.path.isfile(os.path.join(args.assets, name)):
             raise SystemExit("missing asset: " + os.path.join(args.assets, name))
 
@@ -406,12 +424,15 @@ def main():
         if apply_file(path, marker, file_edits, args.dry_run):
             changed.append(path)
 
-    print("\nassets:")
-    for name, rel in ASSETS:
+    print("\nassets:" + ("" if grid_present and not args.no_grid else "  (grid theme not present -- skipping its files)"))
+    for name, rel, replace in wanted:
         dst = os.path.join(args.html_dir, *rel)
-        print(("  (dry) " if args.dry_run else "  ") + "copy", name, "->", dst)
+        tag = "replace" if replace else "copy"
+        print(("  (dry) " if args.dry_run else "  ") + tag, name, "->", dst)
         if not args.dry_run:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if replace and os.path.isfile(dst) and not os.path.exists(dst + BACKUP_SUFFIX):
+                shutil.copyfile(dst, dst + BACKUP_SUFFIX)
             shutil.copyfile(os.path.join(args.assets, name), dst)
             os.chmod(dst, 0o644)
 
