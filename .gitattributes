@@ -2,3 +2,10 @@
 # when checked out on Windows so a stray CR never breaks a shebang or a command.
 scripts/deploy-tone3000/*.sh text eol=lf
 scripts/deploy-tone3000/*.py text eol=lf
+
+# Frontend files are deployed to the (Linux) device as-is; keep them LF so a
+# Windows checkout doesn't push CRLF and make on-device diffs unreadable.
+html/**/*.js text eol=lf
+html/**/*.css text eol=lf
+html/**/*.html text eol=lf
+html/*.html text eol=lf
