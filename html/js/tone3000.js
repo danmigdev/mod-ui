@@ -35,12 +35,84 @@ function tone3000RandomBase64Url (nbytes) {
     return tone3000Base64Url(crypto.getRandomValues(new Uint8Array(nbytes)))
 }
 
-// S256 PKCE challenge. crypto.subtle only exists in a secure context. localhost is
-// one; the real device, on plain http:// over a LAN IP, is not. A pure-JS sha256
-// will be needed before this ships to hardware.
+/* S256 PKCE challenge.
+
+   crypto.subtle only exists in a secure context: localhost is one, the real device --
+   plain http:// over a LAN IP -- is not. TONE3000 accepts the S256 method only (no
+   `plain`), so where SubtleCrypto is missing we still have to produce the SHA-256, in
+   JS. Both paths return a Promise of the base64url digest, so callers never branch. */
 function tone3000Sha256Base64Url (input) {
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
-                 .then(tone3000Base64Url)
+    var bytes = new TextEncoder().encode(input)
+    if (typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.digest) {
+        return crypto.subtle.digest('SHA-256', bytes).then(tone3000Base64Url)
+    }
+    return Promise.resolve(tone3000Base64Url(tone3000Sha256Bytes(bytes)))
+}
+
+/* Pure-JS SHA-256 (FIPS 180-4): byte array in, the 32 raw digest bytes out. Only
+   reached when crypto.subtle is absent, and only ever fed the PKCE verifier -- a
+   short base64url string. Not constant-time, which does not matter for hashing a
+   value that is about to be sent in the clear anyway. */
+function tone3000Sha256Bytes (bytes) {
+    var K = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ]
+    var h = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
+
+    function rotr (x, n) { return (x >>> n) | (x << (32 - n)) }
+
+    // Pad to a multiple of 64: the 0x80 byte, then zeros, then the 64-bit big-endian
+    // bit length. The high word is always 0 here -- the verifier is a few dozen bytes.
+    var blockCount = ((bytes.length + 8) >> 6) + 1
+    var buf = new Uint8Array(blockCount << 6)
+    buf.set(bytes)
+    buf[bytes.length] = 0x80
+    var view = new DataView(buf.buffer)
+    view.setUint32(buf.length - 8, Math.floor(bytes.length / 0x20000000), false)
+    view.setUint32(buf.length - 4, (bytes.length * 8) >>> 0, false)
+
+    var w = new Int32Array(64)
+    for (var off = 0; off < buf.length; off += 64) {
+        var i
+        for (i = 0; i < 16; i++) {
+            w[i] = view.getUint32(off + (i << 2), false)
+        }
+        for (i = 16; i < 64; i++) {
+            var x15 = w[i - 15], x2 = w[i - 2]
+            var s0 = rotr(x15, 7) ^ rotr(x15, 18) ^ (x15 >>> 3)
+            var s1 = rotr(x2, 17) ^ rotr(x2, 19) ^ (x2 >>> 10)
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0
+        }
+
+        var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7]
+        for (i = 0; i < 64; i++) {
+            var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
+            var ch = (e & f) ^ (~e & g)
+            var t1 = (hh + S1 + ch + K[i] + w[i]) | 0
+            var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
+            var maj = (a & b) ^ (a & c) ^ (b & c)
+            var t2 = (S0 + maj) | 0
+            hh = g; g = f; f = e; e = (d + t1) | 0
+            d = c; c = b; b = a; a = (t1 + t2) | 0
+        }
+
+        h[0] = (h[0] + a) | 0; h[1] = (h[1] + b) | 0; h[2] = (h[2] + c) | 0; h[3] = (h[3] + d) | 0
+        h[4] = (h[4] + e) | 0; h[5] = (h[5] + f) | 0; h[6] = (h[6] + g) | 0; h[7] = (h[7] + hh) | 0
+    }
+
+    var out = new Uint8Array(32)
+    var outView = new DataView(out.buffer)
+    for (var j = 0; j < 8; j++) {
+        outView.setUint32(j << 2, h[j] >>> 0, false)
+    }
+    return out
 }
 
 /* Build the authorize URL, stashing the PKCE verifier and CSRF state in OUR
