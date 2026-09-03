@@ -401,8 +401,26 @@ var GridParams = (function () {
             applySkinTransform()
         })
         skinPane.on('wheel', function (ev) {
-            ev.preventDefault()
             var oe = ev.originalEvent || ev
+
+            // If the pointer is over something inside the skin that can still
+            // scroll in this direction (e.g. NAM's expanded model list), let it
+            // scroll and don't zoom.
+            var node = ev.target
+            while (node && node !== skinPane[0] && node.nodeType === 1) {
+                var oy = getComputedStyle(node).overflowY
+                if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight + 1) {
+                    var up = oe.deltaY < 0
+                    var atTop = node.scrollTop <= 0
+                    var atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 1
+                    if (!((up && atTop) || (!up && atBottom))) {
+                        return
+                    }
+                }
+                node = node.parentNode
+            }
+
+            ev.preventDefault()
             var factor = oe.deltaY < 0 ? 1.1 : 1 / 1.1
             skinUserZoom = Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, skinUserZoom * factor))
             applySkinTransform()

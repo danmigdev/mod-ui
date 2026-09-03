@@ -108,14 +108,14 @@ var GridTone3000 = (function () {
     var SORTS = [['trending', 'Trending'], ['newest', 'Newest'],
                  ['downloads-all-time', 'Most downloaded'], ['best-match', 'Best match']]
 
-    var overlay, gridEl, searchInput, countEl, statusEl, sortSel
+    var overlay, gridEl, searchInput, countEl, statusEl, sortSel, archSel, sizeSel
     var detailOverlay, detailInner, connectBar
     var connectPopup = null
     var refreshing = null
     var searchSeq = 0
     var loading = false
     var shownCount = 0
-    var query = '', sort = 'trending', page = 1, totalPages = 1
+    var query = '', sort = 'trending', arch = '', sizeFilter = '', page = 1, totalPages = 1
 
     // ── token storage ───────────────────────────────────────────────────────
     function getStored() {
@@ -297,6 +297,8 @@ var GridTone3000 = (function () {
         statusEl.text(append ? 'Loading more…' : 'Searching…')
         var qs = new URLSearchParams({ format: 'nam', sort: sort, page: String(page), page_size: String(PAGE_SIZE) })
         if (query) qs.set('query', query)
+        if (arch) qs.set('architecture', arch)
+        if (sizeFilter) qs.set('sizes', sizeFilter)
         apiGet('/api/v1/tones/search?' + qs.toString()).then(function (res) {
             loading = false
             if (seq !== searchSeq) return
@@ -571,6 +573,8 @@ var GridTone3000 = (function () {
             countEl = $('#grid-t3k-count')
             statusEl = $('#grid-t3k-status')
             sortSel = $('#grid-t3k-sort')
+            archSel = $('#grid-t3k-arch')
+            sizeSel = $('#grid-t3k-size')
             connectBar = $('#grid-t3k-connectbar')
             detailOverlay = $('#grid-t3k-detail-overlay')
             detailInner = $('#grid-t3k-detail-inner')
@@ -595,6 +599,8 @@ var GridTone3000 = (function () {
                 }, 300)
             })
             sortSel.on('change', function () { sort = sortSel.val(); render() })
+            archSel.on('change', function () { arch = archSel.val(); render() })
+            sizeSel.on('change', function () { sizeFilter = sizeSel.val(); render() })
 
             // infinite scroll: pull the next page as the grid nears its end
             gridEl.on('scroll', maybeLoadMore)

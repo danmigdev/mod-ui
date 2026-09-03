@@ -26,6 +26,8 @@ const BODY =
     '<div id="grid-t3k-overlay" class="grid-hidden"><div class="grid-t3k-inner">' +
     '  <div class="grid-t3k-header">' +
     '    <input id="grid-t3k-search"><select id="grid-t3k-sort"></select>' +
+    '    <select id="grid-t3k-arch"><option value=""></option><option value="2">a2</option></select>' +
+    '    <select id="grid-t3k-size"><option value=""></option><option value="lite">lite</option></select>' +
     '    <span id="grid-t3k-count"></span>' +
     '    <span id="grid-t3k-connectbar" class="grid-hidden"><button id="grid-t3k-disconnect"></button></span>' +
     '    <button id="grid-t3k-close"></button>' +
@@ -122,4 +124,24 @@ test('receiveTokens stores tokens and flips isConnected', () => {
     assert.equal(T3K.isConnected(), false)
     T3K.receiveTokens({ access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3600000 })
     assert.equal(T3K.isConnected(), true)
+})
+
+test('architecture + size filters go into the search query', async () => {
+    let seen = null
+    ctx.window.fetch = (url) => {
+        seen = String(url)
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: [], total_pages: 1 }) })
+    }
+    T3K.receiveTokens({ access_token: 'tok', refresh_token: 'r', expires_at: Date.now() + 3600000 })
+    await new Promise((r) => setTimeout(r, 10))   // let the initial search settle
+
+    $('#grid-t3k-arch').val('2').trigger('change')
+    await new Promise((r) => setTimeout(r, 10))
+    $('#grid-t3k-size').val('lite').trigger('change')
+    await new Promise((r) => setTimeout(r, 10))
+
+    assert.ok(seen && seen.indexOf('/api/v1/tones/search?') >= 0, 'hit the search endpoint')
+    assert.ok(seen.indexOf('architecture=2') >= 0, 'architecture in query: ' + seen)
+    assert.ok(seen.indexOf('sizes=lite') >= 0, 'sizes in query: ' + seen)
+    assert.ok(seen.indexOf('format=nam') >= 0)
 })
