@@ -1296,6 +1296,22 @@ body.grid-nav-pinned #grid-canvas-wrap {
     font-style: italic;
 }
 
+.grid-nav-unbanked {
+    margin: 4px 8px 10px;
+    padding: 8px 10px;
+    border: 1px dashed var(--grid-border);
+    border-radius: 6px;
+}
+.grid-nav-unbanked-title {
+    font-size: 1.5rem;
+    color: var(--grid-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.grid-nav-unbanked .grid-nav-empty { padding: 2px 0 8px; }
+.grid-nav-unbanked button { width: 100%; }
+
 /* ---- ambiguous port-connection dialog ---- */
 
 #grid-connect-dialog {

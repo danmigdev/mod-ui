@@ -121,6 +121,49 @@ var GridNav = (function () {
         })
     }
 
+    function currentBundle() {
+        return (typeof BUNDLE_PATH !== 'undefined' && BUNDLE_PATH) ? BUNDLE_PATH : null
+    }
+    function currentTitle() {
+        return (typeof PEDALBOARD_TITLE !== 'undefined' && PEDALBOARD_TITLE) ? PEDALBOARD_TITLE : 'Untitled'
+    }
+    function currentIsBanked() {
+        var b = currentBundle()
+        return !!b && (banksData || []).some(function (bank) {
+            return (bank.pedalboards || []).some(function (pb) { return pb.bundle === b })
+        })
+    }
+
+    // The tree only shows pedalboards that are in a bank. The one loaded at
+    // boot usually isn't, so "Save" writes it to disk with nowhere on screen
+    // showing where -- this files it into a bank (existing name or a new one)
+    // so it appears in the tree like everything else.
+    function addCurrentToBank() {
+        var bundle = currentBundle()
+        if (!bundle) return
+        var title = currentTitle()
+        var name = window.prompt(
+            'Bank name -- "' + title + '" will be filed into it:', title)
+        if (!name) return
+        banksData = banksData || []
+        var bank = banksData.filter(function (b) { return b.title === name })[0]
+        if (!bank) { bank = { title: name, pedalboards: [] }; banksData.push(bank) }
+        bank.pedalboards = bank.pedalboards || []
+        if (!bank.pedalboards.some(function (pb) { return pb.bundle === bundle })) {
+            bank.pedalboards.push({ bundle: bundle, title: title })
+        }
+        $.ajax({
+            url: '/banks/save', type: 'POST', contentType: 'application/json',
+            processData: false, data: JSON.stringify(banksData), cache: false, dataType: 'json',
+            success: function (ok) {
+                if (!ok) { safeNotify('error', "Couldn't save the bank"); return }
+                safeNotify('info', '"' + title + '" is now in bank "' + name + '"')
+                render()
+            },
+            error: function () { safeNotify('error', "Couldn't save the bank") },
+        })
+    }
+
     // A pedalboard not listed in any bank's "pedalboards" array never shows
     // up in this tree at all (it renders one node per bank, nothing else) —
     // so creating one only makes sense from a specific bank's own "..."
@@ -565,8 +608,25 @@ var GridNav = (function () {
             tree.append(el('div', 'grid-nav-empty', 'Loading…'))
             return
         }
+
+        // The pedalboard that's open but not in any bank (the boot one, or one
+        // just saved for the first time) -- surface it so "saved... where?" has
+        // an answer, with a one-click way to file it.
+        if (currentBundle() && !currentIsBanked()) {
+            var box = el('div', 'grid-nav-unbanked')
+            box.append(el('div', 'grid-nav-unbanked-title', currentTitle()))
+            box.append(el('div', 'grid-nav-empty', 'Open, but not in any bank.'))
+            var btn = el('button', 'grid-toolbar-action grid-manage-new', 'Add to a bank…')
+            btn.click(function (ev) { ev.stopPropagation(); addCurrentToBank() })
+            box.append(btn)
+            tree.append(box)
+        }
+
         if (!banksData.length) {
-            tree.append(el('div', 'grid-nav-empty', 'No banks yet — use "New Bank" above, then add a pedalboard to it.'))
+            if (!currentBundle()) {
+                tree.append(el('div', 'grid-nav-empty',
+                    'No banks yet — use "New Bank" above, then add a pedalboard to it.'))
+            }
             return
         }
         banksData.forEach(function (bank) { tree.append(buildBankNode(bank)) })

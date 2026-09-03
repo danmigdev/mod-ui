@@ -1224,14 +1224,18 @@ $(document).ready(function () {
     $('#grid-zoom-out').click(function () { zoomUi(uiZoom - 0.1) })
 
     $('#grid-save').click(function () {
+        var title = PEDALBOARD_TITLE || 'Untitled'
         $.ajax({
             url: '/pedalboard/save',
             type: 'POST',
-            data: { title: PEDALBOARD_TITLE || 'Untitled', asNew: 0 },
+            data: { title: title, asNew: 0 },
             success: function (result) {
                 if (result && result.ok) {
-                    notify('info', 'Pedalboard saved')
+                    notify('info', '"' + title + '" saved')
                     pedalboardModified = false
+                    // so the Banks panel shows it (with the "add to a bank"
+                    // prompt if it isn't in one yet)
+                    if (typeof GridNav !== 'undefined' && GridNav.refresh) GridNav.refresh()
                 } else {
                     notify('error', "Couldn't save pedalboard")
                 }
