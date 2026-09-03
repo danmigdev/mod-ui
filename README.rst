@@ -75,6 +75,36 @@ mod-ui ships two independent front-end themes, both served by the same backend:
 Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
 and "Classic UI" under Settings in the grid theme.
 
+TONE3000
+--------
+
+The **Tone3000** entry in the top menu lets the user browse the TONE3000 catalog and download
+a capture straight into the Neural Amp Modeler. The tone is signed for on TONE3000 in a popup
+(OAuth PKCE), each ``.nam`` model is saved under *NAM Models* in the File Manager, and the new
+files jump to the top of every NAM plugin's model list. The NAM LV2 plugin itself is not
+involved and needs no change.
+
+**One-time setup, for whoever publishes the build** (it cannot be scripted -- it needs a human
+TONE3000 login):
+
+1. Sign in at tone3000.com -> **Settings -> API Keys -> Create API Key** and copy the
+   ``t3k_pub_...`` publishable key. It is a public value, safe to embed.
+2. Leave that key's **allowed redirect URIs empty**. Per TONE3000's docs only registered
+   redirect URIs are enforced, so with none registered the feature works on any device address
+   with no per-device configuration; the PKCE verifier and the ``state`` check are what protect
+   the flow. (Register specific URIs only to lock it down, and expect to update them whenever an
+   address changes -- e.g. DHCP on the device.)
+3. Put the key in the build: set it as the default of ``TONE3000_CLIENT_ID`` in
+   ``mod/settings.py`` (replace ``t3k_pub_REPLACE_ME``). Until you do, the Tone3000 tab shows a
+   "not set up in this build" note instead of the browse button.
+
+``MOD_TONE3000_CLIENT_ID`` overrides the built-in default at runtime (rebranded build, or local
+development), and ``MOD_TONE3000_API`` overrides the API base (default
+``https://www.tone3000.com``).
+
+**For the end user** there is nothing to configure: open mod-ui, click **Tone3000**, click
+**Open TONE3000**, sign in once, pick a tone.
+
 Test
 ----
 
