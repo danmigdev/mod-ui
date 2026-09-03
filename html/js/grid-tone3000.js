@@ -555,6 +555,9 @@ var GridTone3000 = (function () {
                 if (gui && gui.refreshFileTypesLists) {
                     gui.refreshFileTypesLists('nammodel', written)
                 }
+                if (typeof GridParams !== 'undefined' && GridParams.refreshFileParams) {
+                    GridParams.refreshFileParams('nammodel')
+                }
             }
             var closeBtn = $('<button type="button" class="grid-t3k-action-btn">').text('Done')
             closeBtn.click(function () { detailOverlay.addClass('grid-hidden') })

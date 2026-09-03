@@ -12,6 +12,7 @@
 var GridParams = (function () {
     var panel, skinPane, genericPane
     var current = null // { instance, gui, symbolRows, paramRows }
+    var filePathRows = [] // { parameter, row } for each open path-parameter row
 
     function wrap(obj, method, extra) {
         var orig = obj[method]
@@ -150,6 +151,36 @@ var GridParams = (function () {
         return { row: row, setValue: setValue }
     }
 
+    // File / path parameters (e.g. NAM's model selector). The option list is
+    // fetched async via modgui.js's loadFileTypesList, so the row is built empty
+    // and filled by setFiles(); setValue() may arrive before or after that and
+    // is re-applied once the options exist.
+    function buildFileRow(name, onChange) {
+        var row = $('<div class="grid-param-row">')
+        row.append($('<div class="grid-param-name">').text(name).attr('title', name))
+        var control = $('<div class="grid-param-control">')
+        var select = $('<select>').prop('disabled', true)
+        select.append($('<option value="">').text('Loading…'))
+        select.change(function () { onChange(select.val()) })
+        control.append(select)
+        row.append(control)
+
+        var wanted
+        function apply() { if (wanted !== undefined) select.val(wanted) }
+        return {
+            row: row,
+            setValue: function (v) { wanted = (v == null ? '' : String(v)); apply() },
+            setFiles: function (files) {
+                select.empty().prop('disabled', false)
+                select.append($('<option value="">').text(files.length ? '— none —' : 'No files'))
+                files.forEach(function (f) {
+                    select.append($('<option>').val(f.fullname).text(f.basename).attr('title', f.fullname))
+                })
+                apply()
+            },
+        }
+    }
+
     function buildControlPorts(gui, pluginData) {
         var symbolRows = {}
 
@@ -199,8 +230,26 @@ var GridParams = (function () {
 
         parameters.forEach(function (parameter) {
             if (!parameter.writable) return
+
+            // file / path parameters -- show the same file list the plugin skin does
+            if (parameter.type === 'http://lv2plug.in/ns/ext/atom#Path' &&
+                parameter.fileTypes && parameter.fileTypes.length) {
+                var fileRow = buildFileRow(parameter.label, function (v) {
+                    gui.lv2PatchSet(parameter.uri, 'p', v)
+                })
+                genericPane.append(fileRow.row)
+                paramRows[parameter.uri] = fileRow
+                filePathRows.push({ parameter: parameter, row: fileRow })
+                if (parameter.value !== undefined) fileRow.setValue(parameter.value)
+                else if (parameter.ranges && parameter.ranges.default !== undefined) fileRow.setValue(parameter.ranges.default)
+                if (typeof loadFileTypesList === 'function') {
+                    loadFileTypesList(parameter, false, function () { fileRow.setFiles(parameter.files || []) })
+                }
+                return
+            }
+
             var valuetype = paramValueType(parameter)
-            if (!valuetype) return // string/path/uri/vector parameters are not supported in the generic panel yet
+            if (!valuetype) return // string/uri/vector parameters are not supported in the generic panel yet
 
             var hasDefault = parameter.ranges && parameter.ranges.default !== undefined
             var value = hasDefault ? parameter.ranges.default : 0
@@ -606,6 +655,7 @@ var GridParams = (function () {
             })
 
             genericPane.empty()
+            filePathRows = []
             buildConnectionRows(portInfo)
             buildPresetRows(instance, block.pluginData)
             skinPane.find('.grid-skin-zoom-wrap').remove()
@@ -618,7 +668,9 @@ var GridParams = (function () {
                 if (symbolRows && symbolRows[symbol]) symbolRows[symbol].setValue(value)
             })
             wrap(gui, 'setWritableParameterValue', function (uri, valuetype, valuedata) {
-                if (paramRows && paramRows[uri]) paramRows[uri].setValue(parseFloat(valuedata))
+                if (paramRows && paramRows[uri]) {
+                    paramRows[uri].setValue(valuetype === 'p' || valuetype === 's' ? valuedata : parseFloat(valuedata))
+                }
             })
 
             gui.render(instance, function (icon, settings) {
@@ -656,6 +708,16 @@ var GridParams = (function () {
 
         currentInstance: function () { return current ? current.instance : null },
         currentGui: function () { return current ? current.gui : null },
+        // re-fetch the option list of the open path-parameter rows (e.g. after a
+        // TONE3000 download adds NAM models) -- fileType optional filter.
+        refreshFileParams: function (fileType) {
+            if (typeof loadFileTypesList !== 'function') return
+            filePathRows.forEach(function (entry) {
+                var p = entry.parameter
+                if (fileType && (!p.fileTypes || p.fileTypes.indexOf(fileType) < 0)) return
+                loadFileTypesList(p, false, function () { entry.row.setFiles(p.files || []) })
+            })
+        },
         // called by rewireChain() in grid-app.js whenever connections change,
         // so the connection rows don't go stale while the panel stays open
         refreshPorts: function (portInfo) {
