@@ -426,11 +426,37 @@ var GridTone3000 = (function () {
             var folder = folderFor(tone)
             list.append($('<p class="grid-t3k-folder-note">').text('Saved to NAM Models / ' + folder))
 
+            var btn = $('<button type="button" class="grid-t3k-action-btn">')
             var picks = []
+
+            function selectedCount() {
+                return picks.filter(function (p) { return p.checked() }).length
+            }
+            function syncHeader() {
+                var n = selectedCount()
+                masterCb.prop('checked', n === picks.length && n > 0)
+                masterCb.prop('indeterminate', n > 0 && n < picks.length)
+                btn.text(n ? ('Add ' + n + ' to NAM Models') : 'Add selected to NAM Models')
+                    .prop('disabled', n === 0)
+            }
+
+            // header row: one checkbox to select / clear all, plus the count
+            var head = $('<div class="grid-t3k-models-head">')
+            var masterCb = $('<input type="checkbox">')
+            masterCb.change(function () {
+                var v = masterCb.prop('checked')
+                picks.forEach(function (p) { p.setChecked(v) })
+                syncHeader()
+            })
+            head.append($('<label class="grid-t3k-select-all">').append(masterCb).append($('<span>').text(' Select all')))
+            head.append($('<span class="grid-t3k-models-count">').text(nam.length + (nam.length === 1 ? ' model' : ' models')))
+            list.append(head)
+
             nam.forEach(function (m, i) {
                 var row = $('<label class="grid-t3k-model-row">')
                 var light = m.size === 'nano' || m.size === 'feather'
                 var cb = $('<input type="checkbox">').prop('checked', nam.length === 1 || light)
+                cb.change(syncHeader)
                 var statusIco = $('<span class="grid-t3k-model-status">')
                 row.append(cb).append(statusIco)
                 row.append($('<span class="grid-t3k-model-name">').text(m.name).attr('title', names[i]))
@@ -441,6 +467,7 @@ var GridTone3000 = (function () {
                 picks.push({
                     model: m, name: names[i],
                     checked: function () { return cb.prop('checked') },
+                    setChecked: function (v) { cb.prop('checked', v) },
                     state: function (s) {
                         row.attr('data-state', s || '')
                         cb.css('display', s ? 'none' : '')
@@ -456,13 +483,13 @@ var GridTone3000 = (function () {
                     'Tip: "standard" models are the heaviest on CPU. On a Pi, prefer nano / feather / lite.'))
             }
 
-            var btn = $('<button type="button" class="grid-t3k-action-btn">').text('Add selected to NAM Models')
             btn.click(function () {
                 var chosen = picks.filter(function (p) { return p.checked() })
                 if (!chosen.length) { notify('info', 'Select at least one model first'); return }
                 downloadModels(tone, chosen, actions)
             })
             actions.append(btn)
+            syncHeader()
         }).catch(function (e) {
             list.empty().append($('<p>').text('Could not load models: ' + (e && e.message || e)))
         })
@@ -580,7 +607,7 @@ var GridTone3000 = (function () {
         // exposed for tests
         _internals: {
             folderFor: folderFor, fileNamesFor: fileNamesFor, sha256B64url: sha256B64url,
-            sha256Bytes: sha256Bytes, configured: configured
+            sha256Bytes: sha256Bytes, configured: configured, openDetail: openDetail
         }
     }
 })()

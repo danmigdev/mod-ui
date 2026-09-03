@@ -2251,6 +2251,25 @@ body.grid-nav-pinned #grid-canvas-wrap {
 
 .grid-t3k-folder-note { font-size: 1.2rem; color: var(--grid-text-dim); margin: 0 0 10px; word-break: break-all; }
 
+.grid-t3k-models-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 2px 8px;
+    border-bottom: 1px solid var(--grid-border);
+    margin-bottom: 8px;
+}
+.grid-t3k-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 1.3rem;
+    color: var(--grid-text);
+    cursor: pointer;
+}
+.grid-t3k-models-count { font-size: 1.2rem; color: var(--grid-text-dim); }
+
 .grid-t3k-models { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .grid-t3k-model-row {
     display: flex;
