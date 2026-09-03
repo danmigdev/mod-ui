@@ -68,23 +68,29 @@ a capture straight into the Neural Amp Modeler. The tone is signed for on TONE30
 files jump to the top of every NAM plugin's model list. The NAM LV2 plugin itself is not
 involved and needs no change.
 
-**One-time setup, for whoever publishes the build** (it cannot be scripted -- it needs a human
-TONE3000 login):
+**Setup (once per deployment).** The publishable key is deployment configuration and is never
+committed, so it has to be supplied where mod-ui runs:
 
 1. Sign in at tone3000.com -> **Settings -> API Keys -> Create API Key** and copy the
-   ``t3k_pub_...`` publishable key. It is a public value, safe to embed.
+   ``t3k_pub_...`` publishable key.
 2. Leave that key's **allowed redirect URIs empty**. Per TONE3000's docs only registered
    redirect URIs are enforced, so with none registered the feature works on any device address
    with no per-device configuration; the PKCE verifier and the ``state`` check are what protect
    the flow. (Register specific URIs only to lock it down, and expect to update them whenever an
    address changes -- e.g. DHCP on the device.)
-3. Put the key in the build: set it as the default of ``TONE3000_CLIENT_ID`` in
-   ``mod/settings.py`` (replace ``t3k_pub_REPLACE_ME``). Until you do, the Tone3000 tab shows a
-   "not set up in this build" note instead of the browse button.
+3. Give the key to mod-ui, either way:
 
-``MOD_TONE3000_CLIENT_ID`` overrides the built-in default at runtime (rebranded build, or local
-development), and ``MOD_TONE3000_API`` overrides the API base (default
-``https://www.tone3000.com``).
+   - environment: ``MOD_TONE3000_CLIENT_ID=t3k_pub_...`` (for a systemd service, a drop-in
+     such as ``/etc/systemd/system/<unit>.d/tone3000.conf`` with ``[Service]`` +
+     ``Environment=MOD_TONE3000_CLIENT_ID=...``);
+   - or a file: write the key into ``<data dir>/tone3000-client-id`` (the path
+     ``MOD_TONE3000_CLIENT_ID_FILE`` overrides). This survives package upgrades and needs no
+     unit edit.
+
+   ``MOD_TONE3000_API`` overrides the API base (default ``https://www.tone3000.com``).
+
+Without a key the Tone3000 tab shows a "not set up on this deployment" note instead of the
+browse button.
 
 **For the end user** there is nothing to configure: open mod-ui, click **Tone3000**, click
 **Open TONE3000**, sign in once, pick a tone.

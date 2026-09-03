@@ -83,16 +83,23 @@ PEDALBOARDS_LABS_HTTP_ADDRESS = os.environ.pop('MOD_PEDALBOARDS_LABS_HTTP_ADDRES
 CONTROLCHAIN_HTTP_ADDRESS = os.environ.pop('MOD_CONTROLCHAIN_HTTP_ADDRESS',
                                            "https://download.mod.audio/releases/cc-firmware/v3")
 
-# Tone3000 integration. The client id is the OAuth publishable key (t3k_pub_...),
-# a public value: it identifies the app, it grants no data access on its own, and
-# TONE3000 keeps it stable across secret rotation precisely so it can be embedded.
+# Tone3000 integration. The client id is the OAuth publishable key (t3k_pub_...) -- a
+# public value, but deployment configuration, so it is deliberately never committed.
+# Provide it as MOD_TONE3000_CLIENT_ID, or write it to the file named by
+# MOD_TONE3000_CLIENT_ID_FILE (default <data dir>/tone3000-client-id). Without a key
+# the Tone3000 tab shows a "not set up" note instead of the browse button.
 #
-# Ship a real key here so the feature works on a fresh install with no configuration.
-# To get one: sign in at tone3000.com -> Settings -> API Keys -> Create API Key, and
-# leave that key's allowed redirect URIs empty so any device address is accepted (the
-# PKCE verifier and the state check are what protect the flow). MOD_TONE3000_CLIENT_ID
-# overrides this at runtime for a rebranded build or local development.
-TONE3000_CLIENT_ID = os.environ.get('MOD_TONE3000_CLIENT_ID', "t3k_pub_REPLACE_ME")
+# Mint one at tone3000.com -> Settings -> API Keys -> Create API Key, and leave that
+# key's allowed redirect URIs empty so any device address is accepted -- the PKCE
+# verifier and the state check are what protect the flow.
+TONE3000_CLIENT_ID = os.environ.get('MOD_TONE3000_CLIENT_ID', "").strip()
+if not TONE3000_CLIENT_ID:
+    _t3k_key_file = os.environ.get('MOD_TONE3000_CLIENT_ID_FILE', join(DATA_DIR, 'tone3000-client-id'))
+    try:
+        with open(_t3k_key_file) as _fh:
+            TONE3000_CLIENT_ID = _fh.read().strip()
+    except OSError:
+        pass
 TONE3000_API = os.environ.get('MOD_TONE3000_API', "https://www.tone3000.com")
 
 MIDI_BEAT_CLOCK_SENDER_URI = "urn:mod:mclk"
