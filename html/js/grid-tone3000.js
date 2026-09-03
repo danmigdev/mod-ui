@@ -288,9 +288,12 @@ var GridTone3000 = (function () {
     // ── search (infinite scroll) ───────────────────────────────────────────
     var PAGE_SIZE = 48
 
-    // append === false starts a fresh search; append === true adds the next page
+    // append === false starts a fresh search; append === true adds the next page.
+    // A fresh search always runs -- it bumps searchSeq so any in-flight request's
+    // result is ignored -- so changing a filter mid-load is never dropped. Only a
+    // scroll-triggered "load more" backs off while a request is already running.
     function doSearch(append) {
-        if (loading) return
+        if (append && loading) return
         var seq = append ? searchSeq : ++searchSeq
         if (!append) { page = 1; shownCount = 0; gridEl.empty() }
         loading = true
@@ -300,13 +303,13 @@ var GridTone3000 = (function () {
         if (arch) qs.set('architecture', arch)
         if (sizeFilter) qs.set('sizes', sizeFilter)
         apiGet('/api/v1/tones/search?' + qs.toString()).then(function (res) {
+            if (seq !== searchSeq) return   // superseded; the newer request owns `loading`
             loading = false
-            if (seq !== searchSeq) return
             totalPages = res.total_pages || 1
             addResults(res.data || [], append)
         }).catch(function (e) {
-            loading = false
             if (seq !== searchSeq) return
+            loading = false
             statusEl.text(e && e.message || String(e))
             if (!isConnected()) renderDisconnected()
         })

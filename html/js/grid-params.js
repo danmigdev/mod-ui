@@ -400,30 +400,20 @@ var GridParams = (function () {
             skinUserZoom = Math.max(MIN_USER_ZOOM, skinUserZoom / 1.2)
             applySkinTransform()
         })
+        // No wheel-zoom on the skin -- that's what the +/- buttons and pinch are
+        // for. If the pointer is over something scrollable inside the skin (e.g.
+        // NAM's model list), let the wheel scroll it; otherwise just swallow the
+        // event so it doesn't scroll the panel behind.
         skinPane.on('wheel', function (ev) {
-            var oe = ev.originalEvent || ev
-
-            // If the pointer is over something inside the skin that can still
-            // scroll in this direction (e.g. NAM's expanded model list), let it
-            // scroll and don't zoom.
             var node = ev.target
             while (node && node !== skinPane[0] && node.nodeType === 1) {
                 var oy = getComputedStyle(node).overflowY
                 if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight + 1) {
-                    var up = oe.deltaY < 0
-                    var atTop = node.scrollTop <= 0
-                    var atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 1
-                    if (!((up && atTop) || (!up && atBottom))) {
-                        return
-                    }
+                    return
                 }
                 node = node.parentNode
             }
-
             ev.preventDefault()
-            var factor = oe.deltaY < 0 ? 1.1 : 1 / 1.1
-            skinUserZoom = Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, skinUserZoom * factor))
-            applySkinTransform()
         })
 
         var pinchStartDist = null

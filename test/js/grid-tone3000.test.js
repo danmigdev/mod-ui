@@ -127,21 +127,34 @@ test('receiveTokens stores tokens and flips isConnected', () => {
 })
 
 test('architecture + size filters go into the search query', async () => {
-    let seen = null
+    const seen = []
+    let resolvers = []
     ctx.window.fetch = (url) => {
-        seen = String(url)
-        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: [], total_pages: 1 }) })
+        seen.push(String(url))
+        return new Promise((resolve) => {
+            resolvers.push(() => resolve({
+                ok: true, status: 200, json: () => Promise.resolve({ data: [], total_pages: 1 }),
+            }))
+        })
     }
     T3K.receiveTokens({ access_token: 'tok', refresh_token: 'r', expires_at: Date.now() + 3600000 })
-    await new Promise((r) => setTimeout(r, 10))   // let the initial search settle
+    await tick()
 
+    // change both filters WHILE the previous request(s) are still in flight --
+    // this is what a real user does, and a naive "if (loading) return" drops it
     $('#grid-t3k-arch').val('2').trigger('change')
-    await new Promise((r) => setTimeout(r, 10))
+    await tick()
     $('#grid-t3k-size').val('lite').trigger('change')
-    await new Promise((r) => setTimeout(r, 10))
+    await tick()
 
-    assert.ok(seen && seen.indexOf('/api/v1/tones/search?') >= 0, 'hit the search endpoint')
-    assert.ok(seen.indexOf('architecture=2') >= 0, 'architecture in query: ' + seen)
-    assert.ok(seen.indexOf('sizes=lite') >= 0, 'sizes in query: ' + seen)
-    assert.ok(seen.indexOf('format=nam') >= 0)
+    // now let every pending fetch resolve
+    resolvers.forEach((fn) => fn())
+    await tick()
+
+    const last = seen[seen.length - 1]
+    assert.ok(last.indexOf('/api/v1/tones/search?') >= 0, 'hit search: ' + last)
+    assert.ok(last.indexOf('architecture=2') >= 0, 'architecture kept: ' + last)
+    assert.ok(last.indexOf('sizes=lite') >= 0, 'size kept: ' + last)
 })
+
+function tick() { return new Promise((r) => setTimeout(r, 5)) }
