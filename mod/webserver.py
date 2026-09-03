@@ -16,9 +16,11 @@ from datetime import timedelta
 from random import randint
 from tornado import gen, iostream, web, websocket
 from tornado.escape import squeeze, url_escape, xhtml_escape
+from tornado.httpclient import AsyncHTTPClient, HTTPError as HTTPClientError
 from tornado.ioloop import IOLoop
 from tornado.template import Loader
 from tornado.util import unicode_type
+from urllib.parse import quote, unquote
 from uuid import uuid4
 
 try:
@@ -874,6 +876,85 @@ class EffectResource(TimelessStaticFileHandler):
     def shared_resource(self, path):
         super(EffectResource, self).initialize(os.path.join(HTML_DIR, 'resources'))
         return super(EffectResource, self).get(path)
+
+# Same-origin reverse proxy onto the separate MOD File Manager service
+# (browsepy, its own process on 127.0.0.1:8081 -- see html/js/grid-file-manager.js).
+# Needed purely to dodge CORS: a page served from this Tornado app can't fetch()
+# cross-origin into a different port without the target sending
+# Access-Control-Allow-Origin, which stock browsepy never does. Proxying under
+# this app's own origin sidesteps that entirely.
+class FileManagerProxy(TimelessRequestHandler):
+    @web.asynchronous
+    @gen.coroutine
+    def get(self, path):
+        yield self._proxy(path)
+
+    @web.asynchronous
+    @gen.coroutine
+    def post(self, path):
+        yield self._proxy(path)
+
+    @gen.coroutine
+    def _proxy(self, path):
+        # Tornado already unquotes the (.*) group (a folder named "Audio Tracks"
+        # arrives with a literal space); re-escape or the upstream request line
+        # is malformed.
+        url = "http://127.0.0.1:8081/" + quote(path or '', safe='/')
+        if self.request.query:
+            url += "?" + self.request.query
+
+        headers = {}
+        content_type = self.request.headers.get('Content-Type')
+        if content_type:
+            headers['Content-Type'] = content_type
+        body = self.request.body if self.request.method in ('POST', 'PUT') else None
+
+        try:
+            response = yield AsyncHTTPClient().fetch(
+                url, method=self.request.method, headers=headers, body=body,
+                follow_redirects=False, request_timeout=30)
+        except HTTPClientError as e:
+            if e.response is None:
+                self.set_status(502)
+                self.finish()
+                return
+            response = e.response
+
+        self.set_status(response.code)
+        resp_content_type = response.headers.get('Content-Type')
+        if resp_content_type:
+            self.set_header('Content-Type', resp_content_type)
+        self.finish(response.body or b'')
+
+# Real os.stat() for the immediate children of a folder under USER_FILES_DIR --
+# the grid file manager's list view needs size/mtime/ctime, which browsepy's
+# browse.html doesn't carry.
+class FileManagerStat(JsonRequestHandler):
+    def get(self, path):
+        base = os.path.realpath(USER_FILES_DIR)
+        target = os.path.realpath(os.path.join(base, unquote(path or '')))
+        if target != base and not target.startswith(base + os.sep):
+            raise web.HTTPError(403)
+        if not os.path.isdir(target):
+            raise web.HTTPError(404)
+
+        entries = []
+        for name in os.listdir(target):
+            full = os.path.join(target, name)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            isdir = os.path.isdir(full)
+            entries.append({
+                'name': name,
+                'isDir': isdir,
+                'extension': '' if isdir else os.path.splitext(name)[1].lstrip('.'),
+                'size': st.st_size,
+                'mtime': st.st_mtime,
+                'ctime': st.st_ctime,
+            })
+        self.write(entries)
 
 class EffectImage(TimelessStaticFileHandler):
     def initialize(self):
@@ -2366,6 +2447,8 @@ application = web.Application(
             (r"/controlchain/cancel/", ControlChainCancel),
 
             (r"/resources/(.*)", EffectResource),
+            (r"/filesvc-stat/(.*)", FileManagerStat),
+            (r"/filesvc/(.*)", FileManagerProxy),
 
             # plugin management
             (r"/effect/add/*(/[A-Za-z0-9_/]+[^/])/?", EffectAdd),
