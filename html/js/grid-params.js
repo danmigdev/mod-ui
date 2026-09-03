@@ -449,20 +449,35 @@ var GridParams = (function () {
             skinUserZoom = Math.max(MIN_USER_ZOOM, skinUserZoom / 1.2)
             applySkinTransform()
         })
-        // No wheel-zoom on the skin -- that's what the +/- buttons and pinch are
-        // for. If the pointer is over something scrollable inside the skin (e.g.
-        // NAM's model list), let the wheel scroll it; otherwise just swallow the
-        // event so it doesn't scroll the panel behind.
+        // Wheel over the skin zooms it -- unless the pointer is over an open,
+        // actually-overflowing scrollable box inside the skin (NAM's model list,
+        // a preset list, ...), in which case the wheel scrolls that instead.
         skinPane.on('wheel', function (ev) {
-            var node = ev.target
-            while (node && node !== skinPane[0] && node.nodeType === 1) {
-                var oy = getComputedStyle(node).overflowY
-                if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight + 1) {
-                    return
+            var oe = ev.originalEvent || ev
+
+            var scroller = $(ev.target).closest(
+                '.mod-enumerated-list, .mod-file-list, [mod-widget="custom-select-path"], [mod-widget="custom-select"]')[0]
+            if (!scroller) {
+                var node = ev.target
+                while (node && node !== skinPane[0] && node.nodeType === 1) {
+                    var oy = getComputedStyle(node).overflowY
+                    if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') &&
+                        node.scrollHeight > node.clientHeight + 1) {
+                        scroller = node
+                        break
+                    }
+                    node = node.parentNode
                 }
-                node = node.parentNode
             }
+            if (scroller && $(scroller).is(':visible') &&
+                scroller.scrollHeight > scroller.clientHeight + 1) {
+                return  // let the list take the wheel
+            }
+
             ev.preventDefault()
+            var factor = oe.deltaY < 0 ? 1.1 : 1 / 1.1
+            skinUserZoom = Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, skinUserZoom * factor))
+            applySkinTransform()
         })
 
         var pinchStartDist = null

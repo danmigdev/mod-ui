@@ -2326,7 +2326,15 @@ body.grid-nav-pinned #grid-canvas-wrap {
 
 .grid-t3k-size-note { font-size: 1.2rem; color: var(--grid-text-dim); margin: 0 0 12px; }
 
-.grid-t3k-progress-label { font-size: 1.3rem; color: var(--grid-text); margin-bottom: 6px; }
+.grid-t3k-progress-count { font-size: 1.4rem; font-weight: 600; color: var(--grid-text); margin-bottom: 2px; }
+.grid-t3k-progress-label {
+    font-size: 1.25rem;
+    color: var(--grid-text-dim);
+    margin-bottom: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .grid-t3k-progress-track {
     width: 100%;
     height: 8px;

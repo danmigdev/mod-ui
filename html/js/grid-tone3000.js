@@ -508,14 +508,16 @@ var GridTone3000 = (function () {
 
         // swap the button for a live progress area
         actions.empty()
+        var countLine = $('<div class="grid-t3k-progress-count">')
         var label = $('<div class="grid-t3k-progress-label">').text('Starting…')
         var fill = $('<div class="grid-t3k-progress-fill">')
-        actions.append(label).append($('<div class="grid-t3k-progress-track">').append(fill))
+        actions.append(countLine).append(label).append($('<div class="grid-t3k-progress-track">').append(fill))
 
         var chain = chosen.reduce(function (p, item, idx) {
             return p.then(function () {
                 item.state('downloading')
-                label.text('Downloading "' + item.model.name + '"  ·  ' + (idx + 1) + ' / ' + total)
+                countLine.text((idx + 1) + ' / ' + total)
+                label.text('Downloading "' + item.model.name + '"')
                 return accessToken().then(function (tok) {
                     return fetch(item.model.model_url, { headers: { Authorization: 'Bearer ' + tok } })
                 }).then(function (r) {
@@ -544,9 +546,8 @@ var GridTone3000 = (function () {
         }, Promise.resolve())
 
         chain.then(function () {
-            label.text(ok === total
-                ? ('Done — ' + total + ' saved to NAM Models / ' + folder)
-                : (ok + ' of ' + total + ' saved to NAM Models / ' + folder))
+            countLine.text(ok === total ? ('Done — ' + total + ' saved') : (ok + ' of ' + total + ' saved'))
+            label.text('in NAM Models / ' + folder)
             if (ok) {
                 notify('info', ok + ' model' + (ok === 1 ? '' : 's') + ' added to NAM Models')
                 // If a NAM plugin's params panel is open, refresh its file dropdown in place
