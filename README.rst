@@ -75,6 +75,42 @@ mod-ui ships two independent front-end themes, both served by the same backend:
 Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
 and "Classic UI" under Settings in the grid theme.
 
+Installing this branch on a device
+----------------------------------
+
+This branch is a superset of ``master``: the grid theme, the TONE3000 integration, the grid
+file-manager backend and some small backend fixes, on top of everything ``master`` has.
+
+**From source / your own image.** Check out ``grid-theme`` and follow *Install* and *Run*
+above (or build your device image from it). You get everything, nothing else to do. This is
+the clean path.
+
+**On a device that runs mod-ui as a distro package** (Blokas' ``modep-mod-ui``, sealed MOD
+images) the source tree can't be swapped. ``scripts/deploy-tone3000/`` patches an installed
+mod-ui in place — from a checkout of this branch, on a machine that can SSH to the device::
+
+    $ scripts/deploy-tone3000/deploy.sh --host user@device --key t3k_pub_xxxxxxxx
+
+That one run installs:
+
+- the **grid theme** — ``grid.html``, every ``grid-*.js`` / ``grid-*.css`` (they are plain
+  static assets this branch owns), plus the ``grid()`` template route in ``webserver.py``
+  so ``/grid.html`` renders;
+- the **grid file manager** backend — the ``/filesvc`` proxy and ``/filesvc-stat`` handlers
+  ``html/js/grid-file-manager.js`` needs (never committed upstream);
+- the **TONE3000** integration in both themes — see the section below for the key.
+
+Every file it changes is backed up to ``<file>.pre-tone3000``; it syntax-checks the Python,
+HTTP-checks the restarted service, and rolls everything back if the service does not come up.
+``deploy.sh --host user@device --rollback`` undoes it. See
+``scripts/deploy-tone3000/README.md`` for the details, ``--dry-run``, and running it directly
+on the device.
+
+Not covered by the script: a few independent ``webserver.py`` bug-fixes this branch also
+carries (snapshot/bank save guards, ``poweroff``) and ``polkit/49-mod-ui-power.rules`` (so
+Power Off / Reboot work headless — ``setup.py`` installs it on a source build). Port those
+from ``git diff master...grid-theme`` if you want them, or run from source.
+
 TONE3000
 --------
 
