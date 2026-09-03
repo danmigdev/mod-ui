@@ -49,16 +49,16 @@ that key's allowed redirect URIs empty so any device address is accepted.
 
 ```sh
 # first install
-./deploy.sh --host patch@192.168.1.20 --key t3k_pub_xxxxxxxx
+./deploy.sh --host patch@patchbox.local --key t3k_pub_xxxxxxxx
 
 # key from a file instead of the command line
-./deploy.sh --host patch@192.168.1.20 --key @~/.secrets/t3k.key
+./deploy.sh --host patch@patchbox.local --key @~/.secrets/t3k.key
 
 # see what it would do
-./deploy.sh --host patch@192.168.1.20 --dry-run
+./deploy.sh --host patch@patchbox.local --dry-run
 
 # undo (restore every backup, remove the added files)
-./deploy.sh --host patch@192.168.1.20 --rollback
+./deploy.sh --host patch@patchbox.local --rollback
 ```
 
 `deploy.sh` copies `apply.py` + the assets to the device and runs `apply.py`

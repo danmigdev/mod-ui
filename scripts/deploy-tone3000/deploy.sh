@@ -8,10 +8,10 @@
 # then runs apply.py under sudo. apply.py backs up every file it touches and rolls
 # everything back if the service does not come back healthy.
 #
-#   ./deploy.sh --host patch@192.168.1.20 --key t3k_pub_xxxxxxxx
-#   ./deploy.sh --host patch@192.168.1.20 --key @~/.secrets/t3k.key
-#   ./deploy.sh --host patch@192.168.1.20 --dry-run
-#   ./deploy.sh --host patch@192.168.1.20 --rollback
+#   ./deploy.sh --host patch@patchbox.local --key t3k_pub_xxxxxxxx
+#   ./deploy.sh --host patch@patchbox.local --key @~/.secrets/t3k.key
+#   ./deploy.sh --host patch@patchbox.local --dry-run
+#   ./deploy.sh --host patch@patchbox.local --rollback
 #
 # SSH auth is whatever your ssh/ssh-agent already does for --host (key-based
 # recommended). The key is never written into this repo.

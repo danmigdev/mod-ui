@@ -37,7 +37,7 @@ const BODY =
     '<div id="grid-t3k-detail-overlay" class="grid-hidden"><div id="grid-t3k-detail-inner"></div></div>'
 
 beforeEach(() => {
-    ctx = makeWindow({ url: 'http://192.168.1.20/', body: BODY })
+    ctx = makeWindow({ url: 'http://192.168.7.7/', body: BODY })
     $ = ctx.$
     ctx.window.notify = () => {}
     ctx.window.TONE3000_CLIENT_ID = 't3k_pub_realkey'
@@ -76,7 +76,7 @@ test('buildAuthorizeUrl: S256, our redirect_uri, state persisted', async () => {
     const u = new URL(url)
     assert.equal(u.origin + u.pathname, 'https://www.tone3000.com/api/v1/oauth/authorize')
     assert.equal(u.searchParams.get('client_id'), 't3k_pub_realkey')
-    assert.equal(u.searchParams.get('redirect_uri'), 'http://192.168.1.20/tone3000-connect.html')
+    assert.equal(u.searchParams.get('redirect_uri'), 'http://192.168.7.7/tone3000-connect.html')
     assert.equal(u.searchParams.get('code_challenge_method'), 'S256')
     assert.equal(u.searchParams.get('response_type'), 'code')
     assert.equal(u.searchParams.get('format'), 'nam')
