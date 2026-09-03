@@ -83,15 +83,29 @@ var hwPortPlaced = {}       // instance -> true while its block is on the grid
 var pedalboardModified = false
 var currentBankName = null
 var currentSnapshotName = null
+// null = not yet known, true/false once refreshCurrentBankName has answered.
+// A pedalboard that isn't in any bank saves to disk with nowhere on screen
+// showing for it, which reads as "nothing happened" — so Save and New
+// Snapshot stay disabled until it's filed into a bank (see updateEmptyState
+// and the #grid-unbanked-hint banner).
+var currentPbBanked = null
 
 // Which bank/pedalboard/snapshot is current is otherwise invisible once the
 // nav tree is closed, so it's spelled out under the title at all times.
 function updateStatusLine() {
     var parts = []
     if (currentBankName) parts.push(currentBankName)
+    else if (BUNDLE_PATH && currentPbBanked === false) parts.push('Not in a bank')
     parts.push(PEDALBOARD_TITLE || 'No pedalboard')
     if (currentSnapshotName) parts.push(currentSnapshotName)
     $('#grid-status-line').text(parts.join(' › '))
+}
+
+// True only when there's a pedalboard loaded AND it lives in a bank — the one
+// state in which Save / New Snapshot actually produce something the user can
+// find again.
+function pedalboardIsSaveable() {
+    return !!BUNDLE_PATH && currentPbBanked === true
 }
 
 // A pedalboard can't exist outside of a bank (see GridNav's model), so
@@ -103,9 +117,21 @@ function updateStatusLine() {
 // (adding blocks, saving, snapshotting).
 function updateEmptyState() {
     var empty = !BUNDLE_PATH
+    // unbanked: a pedalboard is loaded but isn't filed in any bank yet
+    var unbanked = !empty && currentPbBanked === false
+    var blocked = empty || unbanked
     $('#grid-canvas-empty').toggleClass('grid-hidden', !empty)
-    $('#grid-new-snapshot').prop('disabled', empty)
-    $('#grid-save').prop('disabled', empty)
+    $('#grid-unbanked-hint').toggleClass('grid-hidden', !unbanked)
+    if (unbanked) $('#grid-unbanked-name').text(PEDALBOARD_TITLE || 'This pedalboard')
+    $('#grid-new-snapshot').prop('disabled', blocked)
+    $('#grid-save').prop('disabled', blocked)
+    var saveTip = unbanked
+        ? 'Add this pedalboard to a bank before saving'
+        : 'Save the pedalboard'
+    $('#grid-save').attr('title', empty ? 'No pedalboard loaded' : saveTip)
+    $('#grid-new-snapshot').attr('title', unbanked
+        ? 'Add this pedalboard to a bank before taking snapshots'
+        : 'Save the current state as a new snapshot of this pedalboard')
     if (empty) $('#grid-title').text('No pedalboard loaded')
     updateStatusLine()
 }
@@ -128,7 +154,12 @@ function refreshCurrentBankName() {
                 }
                 return false
             })
-            updateStatusLine()
+            currentPbBanked = BUNDLE_PATH ? (currentBankName !== null) : null
+            updateEmptyState()
+        },
+        error: function () {
+            currentPbBanked = null
+            updateEmptyState()
         },
     })
 }
@@ -701,6 +732,38 @@ function connectWebSocket() {
             return
         }
 
+        // System stats, sent on the same timer as "stats" but only when the
+        // backend can read /proc/meminfo (so never in the dev environment):
+        // "<memPercent> <cpuFreqHz> <cpuTempMilliC>". The RAM percentage sits
+        // right next to the CPU badge; freq/temp go in its tooltip.
+        if (cmd === "sys_stats") {
+            var sydata = data.split(" ", 3)
+            var memPct = parseFloat(sydata[0])
+            var cpuFreq = parseInt(sydata[1])
+            var cpuTemp = parseInt(sydata[2])
+            if (!isNaN(memPct)) $('#grid-ram-value').text(memPct.toFixed(0) + '%')
+            var tip = []
+            if (cpuFreq > 0) tip.push((cpuFreq / 1000000).toFixed(1) + ' GHz')
+            if (cpuTemp > 0) tip.push((cpuTemp / 1000).toFixed(0) + ' °C')
+            $('#grid-cpu-text').attr('title', tip.join('  ·  '))
+            return
+        }
+
+        // Transport: "<rolling> <beatsPerBar> <beatsPerMinute> <syncMode>".
+        // Broadcast once right after connect and again on every change.
+        if (cmd === "transport") {
+            var trdata = data.split(" ", 4)
+            if (typeof GridTransport !== 'undefined') {
+                GridTransport.fromServer(
+                    parseInt(trdata[0]) != 0,
+                    parseFloat(trdata[1]),
+                    parseFloat(trdata[2]),
+                    trdata[3]
+                )
+            }
+            return
+        }
+
         if (cmd === "rescan") {
             var resp = JSON.parse(atob(data))
             if ((resp.installed && resp.installed.length) || (resp.removed && resp.removed.length)) {
@@ -1094,6 +1157,10 @@ $(document).ready(function () {
     refreshCurrentBankName()
     updateEmptyState()
     $('#grid-canvas-empty-open-nav').click(function () { GridNav.open() })
+    $('#grid-unbanked-add').click(function () {
+        if (GridNav && GridNav.addCurrentToBank) GridNav.addCurrentToBank()
+        else GridNav.open()
+    })
 
     GridNav.init({
         loadPedalboard: function (bundlepath, title) {
@@ -1224,6 +1291,13 @@ $(document).ready(function () {
     $('#grid-zoom-out').click(function () { zoomUi(uiZoom - 0.1) })
 
     $('#grid-save').click(function () {
+        // Defensive: the button is disabled unless the pedalboard is in a
+        // bank (see updateEmptyState), so a plain save always lands somewhere
+        // the nav tree can show.
+        if (!pedalboardIsSaveable()) {
+            notify('error', 'Add this pedalboard to a bank before saving')
+            return
+        }
         var title = PEDALBOARD_TITLE || 'Untitled'
         $.ajax({
             url: '/pedalboard/save',

@@ -63,6 +63,8 @@
 <script type="text/javascript" src="js/grid-file-manager.js?v={{version}}"></script>
 <script type="text/javascript" src="js/grid-store.js?v={{version}}"></script>
 <script type="text/javascript" src="js/grid-tone3000.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-transport.js?v={{version}}"></script>
+<script type="text/javascript" src="js/grid-midi.js?v={{version}}"></script>
 <script type="text/javascript" src="js/grid-settings.js?v={{version}}"></script>
 </head>
 
@@ -84,8 +86,17 @@
         <button id="grid-store-toggle" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Browse and install plugins from Patchstorage">&#129513;</button>
         <button id="grid-tone3000-toggle" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Browse TONE3000 and download NAM captures" aria-label="TONE3000"></button>
         <button id="grid-settings-toggle" class="grid-toolbar-action grid-toolbar-icon-btn grid-toolbar-neutral" title="Settings">&#9881;&#65039;</button>
+        <span class="grid-toolbar-group" id="grid-transport-group">
+            <button id="grid-transport-play" title="Play / stop the transport" aria-label="Play">&#9654;</button>
+            <span class="grid-toolbar-label">BPM</span>
+            <button id="grid-bpm-dec" title="Slower">&minus;</button>
+            <span id="grid-bpm-value" title="Click to type a tempo">--</span>
+            <button id="grid-bpm-inc" title="Faster">+</button>
+            <button id="grid-bpm-tap" title="Tap tempo">Tap</button>
+        </span>
         <span class="grid-toolbar-group">
             <span id="grid-cpu-text"><span id="grid-cpu-label">CPU</span><span id="grid-cpu-value">--%</span></span>
+            <span id="grid-ram-text"><span id="grid-ram-label">RAM</span><span id="grid-ram-value">--%</span></span>
             <span id="grid-xruns-text" class="grid-hidden"><span id="grid-xruns-label">Xrun</span><span id="grid-xruns-value">0</span></span>
         </span>
         <span class="grid-toolbar-group">
@@ -138,6 +149,13 @@
 </div>
 
 <main id="grid-canvas-wrap">
+    <!-- Slim, non-blocking bar: the canvas stays usable underneath. Shown by
+         updateEmptyState() when a pedalboard is loaded but isn't in any bank,
+         which is exactly when Save / New Snapshot are disabled. -->
+    <div id="grid-unbanked-hint" class="grid-hidden">
+        <span>&#9888;&#65039; <strong id="grid-unbanked-name">This pedalboard</strong> isn&rsquo;t in a bank yet &mdash; Save and snapshots stay off until it is.</span>
+        <button id="grid-unbanked-add" class="grid-toolbar-action grid-manage-new">Add to a bank&hellip;</button>
+    </div>
     <div id="grid-canvas"></div>
     <div id="grid-canvas-empty" class="grid-hidden">
         <div id="grid-canvas-empty-inner">
@@ -321,11 +339,47 @@
                     <span class="grid-settings-hint">bigger = more CPU headroom, more latency</span>
                 </span>
                 <div class="grid-settings-control">
-                    <span class="grid-settings-seg">
-                        <button type="button" id="grid-buffer-128" data-size="128">128</button>
-                        <button type="button" id="grid-buffer-256" data-size="256">256</button>
-                    </span>
+                    <select id="grid-buffer-select">
+                        <option value="8">8</option>
+                        <option value="16">16</option>
+                        <option value="32">32</option>
+                        <option value="64">64</option>
+                        <option value="128">128</option>
+                        <option value="256">256</option>
+                        <option value="512">512</option>
+                        <option value="1024">1024</option>
+                    </select>
                     <span class="grid-settings-label" style="min-width:auto">frames</span>
+                </div>
+            </div>
+            <div class="grid-settings-row">
+                <span class="grid-settings-label">Tempo sync
+                    <span class="grid-settings-hint">where the transport clock comes from</span>
+                </span>
+                <div class="grid-settings-control">
+                    <select id="grid-sync-select">
+                        <option value="none">Internal</option>
+                        <option value="midi_clock_slave">MIDI clock slave</option>
+                        <option value="link">Ableton Link</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid-settings-row">
+                <span class="grid-settings-label">Beats per bar
+                    <span class="grid-settings-hint">time signature numerator for the click</span>
+                </span>
+                <div class="grid-settings-control">
+                    <button id="grid-bpb-dec" title="Fewer">&minus;</button>
+                    <span id="grid-bpb-value">4</span>
+                    <button id="grid-bpb-inc" title="More">+</button>
+                </div>
+            </div>
+            <div class="grid-settings-row">
+                <span class="grid-settings-label">MIDI devices
+                    <span class="grid-settings-hint">enable the hardware ports plugins can use</span>
+                </span>
+                <div class="grid-settings-control">
+                    <button id="grid-midi-open">MIDI devices&hellip;</button>
                 </div>
             </div>
             <div class="grid-settings-row">
@@ -333,6 +387,36 @@
                 <div class="grid-settings-control">
                     <a id="grid-settings-classic-ui" href="index.html">Switch back</a>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="grid-midi-overlay" class="grid-hidden">
+    <div class="grid-settings-inner">
+        <div class="grid-settings-header">
+            <h3>MIDI devices</h3>
+            <button id="grid-midi-close" title="Close">&times;</button>
+        </div>
+        <div class="grid-settings-body">
+            <p class="grid-settings-hint" style="margin-top:0">Tick the devices you want available to plugins and hardware bindings.</p>
+            <div id="grid-midi-list" class="grid-midi-list"></div>
+            <div class="grid-settings-row">
+                <span class="grid-settings-label">Port mode</span>
+                <div class="grid-settings-control grid-midi-radios">
+                    <label><input type="radio" name="grid-midi-mode" value="separated"> Separate ports</label>
+                    <label><input type="radio" name="grid-midi-mode" value="aggregated"> Merged into one</label>
+                </div>
+            </div>
+            <div class="grid-settings-row grid-hidden" id="grid-midi-loopback-row">
+                <span class="grid-settings-label">MIDI Loopback</span>
+                <div class="grid-settings-control">
+                    <label><input type="checkbox" id="grid-midi-loopback"> Enable</label>
+                </div>
+            </div>
+            <div class="grid-midi-actions">
+                <button id="grid-midi-cancel">Cancel</button>
+                <button id="grid-midi-apply" class="grid-toolbar-action">Apply</button>
             </div>
         </div>
     </div>

@@ -89,6 +89,16 @@ FILESUPLOAD_CLASS = '''class FilesUpload(JsonRequestHandler):
 
 '''
 
+# The grid nav's bank tree and every membership/guard check read the exact,
+# unfiltered banks.json through this (GET /banks cross-references the scanner
+# cache and silently drops -- then persists the drop of -- entries it doesn't
+# currently vouch for). Stock mod-ui has no such route.
+BANKLOADRAW_CLASS = '''class BankLoadRaw(JsonRequestHandler):
+    def get(self):
+        self.write(safe_json_load(USER_BANKS_JSON_FILE, list))
+
+'''
+
 TONE3000_PANEL = '''
     <!-- TONE3000 -->
     <div id="tone3000-library" class="mod-hidden mod-init-hidden"><div class="box">
@@ -300,6 +310,27 @@ def edits_for(mod_dir, html_dir):
              "        return self.index()\n"
              "\n    def pedalboard(self):\n",
              "\n    def grid(self):\n"),
+            # /banks/raw -- unfiltered banks.json, needed by the grid nav
+            ("\nclass BankSave(JsonRequestHandler):\n",
+             "\n" + BANKLOADRAW_CLASS + "class BankSave(JsonRequestHandler):\n",
+             "class BankLoadRaw("),
+            ('            (r"/banks/?", BankLoad),\n',
+             '            (r"/banks/?", BankLoad),\n'
+             '            (r"/banks/raw/?", BankLoadRaw),\n',
+             '(r"/banks/raw/?", BankLoadRaw)'),
+            # grid Settings offers the full 8..1024 buffer range; stock only
+            # wires 128/256. Widen the route and guard the rest server-side.
+            ("class SetBufferSize(JsonRequestHandler):\n    def post(self, size):\n        size = int(size)\n",
+             "class SetBufferSize(JsonRequestHandler):\n"
+             "    # JACK only takes a power-of-two period; the route lets any integer through\n"
+             "    # so the UI can offer the full 8..1024 range, this rejects the rest.\n"
+             "    VALID_SIZES = (8, 16, 32, 64, 128, 256, 512, 1024)\n\n"
+             "    def post(self, size):\n        size = int(size)\n"
+             "        if size not in self.VALID_SIZES:\n            raise web.HTTPError(400)\n",
+             "VALID_SIZES ="),
+            ('            (r"/set_buffersize/(128|256)", SetBufferSize),\n',
+             '            (r"/set_buffersize/(\\d+)", SetBufferSize),\n',
+             '/set_buffersize/(\\d+)'),
         ]),
 
         ix: ("index.html", [
@@ -369,9 +400,11 @@ GRID_ASSETS = [
     ("grid-connect-dialog.js", ("js", "grid-connect-dialog.js"), True),
     ("grid-file-manager.js", ("js", "grid-file-manager.js"), True),
     ("grid-manage.js", ("js", "grid-manage.js"), True),
+    ("grid-midi.js", ("js", "grid-midi.js"), True),
     ("grid-nav.js", ("js", "grid-nav.js"), True),
     ("grid-params.js", ("js", "grid-params.js"), True),
     ("grid-settings.js", ("js", "grid-settings.js"), True),
+    ("grid-transport.js", ("js", "grid-transport.js"), True),
     ("grid-store.js", ("js", "grid-store.js"), True),
     ("grid-tone3000.js", ("js", "grid-tone3000.js"), True),
     ("grid-dashboard.css", ("css", "grid-dashboard.css"), True),

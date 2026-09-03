@@ -10,7 +10,7 @@
 // controls are independent and can be combined freely.
 
 var GridSettings = (function () {
-    var overlay, pctEl, bufBtns
+    var overlay, pctEl, bufSel
     var ROOT_FONT_PX = 10 // must match grid-dashboard.css's "html { font-size }"
     var MIN_SCALE = 0.8
     var MAX_SCALE = 1.5
@@ -23,22 +23,23 @@ var GridSettings = (function () {
         try { localStorage.setItem('grid-font-scale', fontScale) } catch (e) {}
     }
 
-    // Audio buffer size: the backend only offers 128 or 256 frames (see
-    // SetBufferSize / /set_buffersize in webserver.py). Changing it restarts
-    // JACK, so audio drops for a moment.
+    // Audio buffer size: any power of two 8..1024 (JACK rejects the rest; the
+    // backend guards too). Changing it briefly interrupts audio.
     var currentBuffer = (typeof BUFFER_SIZE === 'number' && BUFFER_SIZE) || 128
 
     function markBuffer(size) {
         currentBuffer = size
-        bufBtns.each(function () {
-            var b = $(this)
-            b.toggleClass('grid-settings-seg-active', parseInt(b.attr('data-size'), 10) === size)
-        })
+        // the device might report a size the fixed option list doesn't carry
+        // (an unusual driver period); show it rather than silently snapping
+        if (!bufSel.find('option[value="' + size + '"]').length) {
+            bufSel.append($('<option>').attr('value', size).text(String(size)))
+        }
+        bufSel.val(String(size))
     }
 
     function setBuffer(size) {
         if (size === currentBuffer) return
-        bufBtns.prop('disabled', true)
+        bufSel.prop('disabled', true)
         if (typeof notify === 'function') notify('info', 'Switching audio buffer to ' + size + ' frames…')
         $.ajax({
             url: '/set_buffersize/' + size,
@@ -46,17 +47,21 @@ var GridSettings = (function () {
             cache: false,
             dataType: 'json',
             success: function (resp) {
-                bufBtns.prop('disabled', false)
+                bufSel.prop('disabled', false)
                 if (resp && resp.ok) {
                     markBuffer(resp.size)
                     if (typeof notify === 'function') notify('info', 'Audio buffer is now ' + resp.size + ' frames')
                 } else {
+                    // JACK refused it (driver minimum, xrun-prone size, …) -- snap back
                     markBuffer(resp && resp.size ? resp.size : currentBuffer)
-                    if (typeof notify === 'function') notify('error', "Couldn't change the audio buffer size")
+                    if (typeof notify === 'function') {
+                        notify('error', 'Audio buffer stayed at ' + currentBuffer + ' frames -- JACK refused ' + size)
+                    }
                 }
             },
             error: function () {
-                bufBtns.prop('disabled', false)
+                bufSel.prop('disabled', false)
+                markBuffer(currentBuffer)
                 if (typeof notify === 'function') notify('error', "Couldn't change the audio buffer size")
             },
         })
@@ -66,7 +71,7 @@ var GridSettings = (function () {
         init: function () {
             overlay = $('#grid-settings-overlay')
             pctEl = $('#grid-settings-font-pct')
-            bufBtns = $('#grid-buffer-128, #grid-buffer-256')
+            bufSel = $('#grid-buffer-select')
 
             $('#grid-settings-toggle').click(function () { overlay.removeClass('grid-hidden') })
             $('#grid-settings-close').click(function () { overlay.addClass('grid-hidden') })
@@ -76,8 +81,8 @@ var GridSettings = (function () {
             $('#grid-settings-font-inc').click(function () { applyFontScale(fontScale + 0.1) })
             $('#grid-settings-font-reset').click(function () { applyFontScale(1) })
 
-            bufBtns.click(function () { setBuffer(parseInt($(this).attr('data-size'), 10)) })
-            markBuffer(currentBuffer === 256 ? 256 : 128)
+            bufSel.on('change', function () { setBuffer(parseInt(bufSel.val(), 10)) })
+            markBuffer(currentBuffer)
 
             var saved = null
             try { saved = parseFloat(localStorage.getItem('grid-font-scale')) } catch (e) {}

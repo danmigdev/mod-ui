@@ -153,19 +153,30 @@ class TestReset(ModUITestCase):
 class TestSetBufferSize(ModUITestCase):
     __test__ = True
 
-    def test_128_and_256_return_ok_false_size_zero(self):
+    def test_power_of_two_sizes_return_ok_false_size_zero(self):
         # Matches the spec's own prediction: under MOD_DEV_ENVIRONMENT,
         # IMAGE_VERSION is None so the /data/jack-buffer-size write is
         # skipped, and set_jack_buffer_size (utils/utils_jack.cpp) is a
         # null-guarded no-op that returns 0 without a JACK client -- so
         # newsize (0) never equals the requested size, and 'ok' is always
         # False.
-        for size in ("128", "256"):
+        for size in ("8", "16", "32", "64", "128", "256", "512", "1024"):
             response, body = self.fetch_json(
                 "/set_buffersize/%s" % size, method="POST", body=b""
             )
             self.assertEqual(response.code, 200)
             self.assertEqual(body, {"ok": False, "size": 0})
+
+    def test_non_power_of_two_sizes_are_rejected(self):
+        # The route accepts any integer so the UI can offer the full range;
+        # SetBufferSize.VALID_SIZES rejects anything JACK would refuse anyway.
+        # A rejected size is a plain 400 (HTML error page), not JSON, so this
+        # goes through self.fetch directly rather than fetch_json.
+        for size in ("0", "100", "192", "2048", "129"):
+            response = self.fetch(
+                "/set_buffersize/%s" % size, method="POST", body=b""
+            )
+            self.assertEqual(response.code, 400)
 
 
 class TestResetXruns(ModUITestCase):

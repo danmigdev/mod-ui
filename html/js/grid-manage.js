@@ -14,6 +14,15 @@ var GridManage = (function () {
     }
 
     function newSnapshot() {
+        // Snapshots belong to a pedalboard that's filed in a bank — without
+        // one there's nowhere they'd show up. The toolbar button is already
+        // disabled in that state (see updateEmptyState); this just makes the
+        // guard hold if it's ever reached another way.
+        if (typeof pedalboardIsSaveable === 'function' && !pedalboardIsSaveable()) {
+            notify('error', 'Add this pedalboard to a bank before taking snapshots')
+            return
+        }
+
         var name = window.prompt('Name for the new snapshot:', '')
         if (!name) return
 

@@ -2080,8 +2080,14 @@ class TrueBypass(JsonRequestHandler):
         self.write(ok)
 
 class SetBufferSize(JsonRequestHandler):
+    # JACK only takes a power-of-two period; the route lets any integer through
+    # so the UI can offer the full 8..1024 range, this rejects the rest.
+    VALID_SIZES = (8, 16, 32, 64, 128, 256, 512, 1024)
+
     def post(self, size):
         size = int(size)
+        if size not in self.VALID_SIZES:
+            raise web.HTTPError(400)
 
         # If running a real MOD, save this setting for next boot
         if IMAGE_VERSION is not None:
@@ -2544,7 +2550,7 @@ application = web.Application(
             (r"/hello/?", Hello),
 
             (r"/truebypass/(Left|Right)/(true|false)", TrueBypass),
-            (r"/set_buffersize/(128|256)", SetBufferSize),
+            (r"/set_buffersize/(\d+)", SetBufferSize),
             (r"/reset_xruns/", ResetXruns),
             (r"/switch_cpu_freq/", SwitchCpuFreq),
 

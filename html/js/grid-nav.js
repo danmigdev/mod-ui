@@ -159,6 +159,9 @@ var GridNav = (function () {
                 if (!ok) { safeNotify('error', "Couldn't save the bank"); return }
                 safeNotify('info', '"' + title + '" is now in bank "' + name + '"')
                 render()
+                // let the toolbar re-enable Save / New Snapshot and drop the
+                // "not in a bank" hint
+                refreshBankNameIfAvailable()
             },
             error: function () { safeNotify('error', "Couldn't save the bank") },
         })
@@ -217,6 +220,10 @@ var GridNav = (function () {
                                 // response. banksData (mutated above) already is the
                                 // correct end state, so render it directly instead.
                                 render()
+                                // it's in a bank now — re-enable Save / New Snapshot
+                                // (refreshCurrentBankName reads /banks/raw, not the
+                                // scanner-filtered /banks, so it's race-free here)
+                                refreshBankNameIfAvailable()
                             },
                             error: function () { safeNotify('error', 'Pedalboard created, but could not add it to the bank'); load() },
                         })
@@ -694,5 +701,20 @@ var GridNav = (function () {
         // Re-fetch banks/pedalboards (and, for whichever pedalboard is current,
         // its snapshots) — used after creating a new bank/pedalboard/snapshot.
         refresh: function () { load() },
+        // File the currently-open, not-yet-banked pedalboard into a bank. Also
+        // reachable from the toolbar's "not in a bank" hint, not just this
+        // panel's own box — needs banksData, so pull a fresh copy first if the
+        // panel was never opened this session.
+        addCurrentToBank: function () {
+            if (banksData === null) {
+                $.ajax({
+                    url: '/banks/raw', cache: false, dataType: 'json',
+                    success: function (banks) { banksData = banks || []; addCurrentToBank() },
+                    error: function () { safeNotify('error', "Couldn't load banks") },
+                })
+            } else {
+                addCurrentToBank()
+            }
+        },
     }
 })()
