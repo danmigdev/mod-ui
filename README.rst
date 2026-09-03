@@ -75,6 +75,18 @@ mod-ui ships two independent front-end themes, both served by the same backend:
 Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
 and "Classic UI" under Settings in the grid theme.
 
+.. image:: docs/screenshots/grid-theme.png
+   :alt: The Grid theme editor
+
+The grid theme has its own plugin store (Patchstorage) and an Explorer-style file manager,
+both built in its own visual style:
+
+.. image:: docs/screenshots/plugin-store.jpg
+   :alt: Plugin store in the Grid theme
+
+.. image:: docs/screenshots/file-manager.png
+   :alt: File manager in the Grid theme
+
 Installing this branch on a device
 ----------------------------------
 
@@ -146,6 +158,12 @@ browse button.
 
 **For the end user** there is nothing to configure: open mod-ui, click **Tone3000**, click
 **Open TONE3000**, sign in once, pick a tone.
+
+In the Grid theme the catalogue is browsed right in the panel — search, filter by neural
+architecture and model size, then download whole tones or individual captures:
+
+.. image:: docs/screenshots/tone3000.jpg
+   :alt: Browsing the TONE3000 catalogue inside the Grid theme
 
 Test
 ----
