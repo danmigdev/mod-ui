@@ -37,9 +37,17 @@ if [[ -e "$output_dir" ]]; then
         echo 'The output directory must be empty.' >&2; exit 1;
     }
 fi
-if command -v mod-host >/dev/null && ldd "$(command -v mod-host)" 2>/dev/null | grep -q hylia; then
+hylia_required=0
+# MODEP links Hylia statically, so its Link support is invisible to ldd.
+if command -v dpkg-query >/dev/null &&
+    [[ $(dpkg-query -W -f='${db:Status-Status}' modep-mod-host 2>/dev/null) = installed ]]; then
+    hylia_required=1
+elif command -v mod-host >/dev/null && ldd "$(command -v mod-host)" 2>/dev/null | grep -q hylia; then
+    hylia_required=1
+fi
+if ((hylia_required)); then
     pkg-config --exists hylia || {
-        echo 'The installed host supports Ableton Link; install its Hylia development files before rebuilding.' >&2
+        echo 'The installed host supports Ableton Link; install libhylia and verify pkg-config hylia before rebuilding.' >&2
         exit 1
     }
 fi

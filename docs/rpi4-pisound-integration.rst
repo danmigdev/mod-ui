@@ -128,8 +128,12 @@ deployment source. Commit updates before creating another build.
 Required tooling includes Git, GCC/G++, Make, pkg-config, Python 3 with
 venv support, and development libraries for JACK, ALSA, Lilv, and readline.
 Preserve Patchbox's Blokas JACK package when resolving build dependencies.
-Keep Hylia development support available if the installed host uses it;
-the builder fails rather than silently dropping Ableton Link support.
+MODEP's ``libhylia`` package supplies the headers, pkg-config definition,
+and static library needed to preserve Ableton Link. The builder requires
+``pkg-config hylia`` when ``modep-mod-host`` is installed, because its
+static Hylia linkage does not appear in ``ldd``. It also checks other
+installed hosts that link Hylia dynamically. Missing Hylia stops the build
+before creating output files.
 Activation also requires the existing MODEP authbind setup, ``runuser``,
 ``curl``, and loaded MODEP UI/host service units.
 
@@ -268,4 +272,6 @@ The deployment defaults above were checked against
 * `Service user setup <https://github.com/BlokasLabs/modep-debs/blob/24ab2e4f67c14ebd913e799a25afc190300ede50/modep-common/modep-common-1.1.0/debian/postinst>`_
 * `Data and authbind permissions <https://github.com/BlokasLabs/modep-debs/blob/24ab2e4f67c14ebd913e799a25afc190300ede50/modep-mod-ui/modep-mod-ui-1.13.0/debian/postinst>`_
 * `Python package dependencies <https://github.com/BlokasLabs/modep-debs/blob/24ab2e4f67c14ebd913e799a25afc190300ede50/modep-mod-ui/modep-mod-ui-1.13.0/debian/control>`_
+* `Host build dependencies <https://github.com/BlokasLabs/modep-debs/blob/24ab2e4f67c14ebd913e799a25afc190300ede50/modep-mod-host/modep-mod-host-1.13.0/debian/control>`_
+* `Hylia static library and development files <https://github.com/BlokasLabs/hylia/blob/6421909123974ffd431ace47589975f5929bc746/Makefile>`_
 * `Pisound MODEP controller <https://github.com/BlokasLabs/modep-btn-scripts/blob/48d515c074b59afd0db0a36710ea7352f79f92d2/modep-ctrl.py>`_
