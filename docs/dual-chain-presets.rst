@@ -4,6 +4,9 @@ Independent guitar and microphone rigs
 Status: implementation design for the ``dual-chain-presets`` branch. The runtime
 feature described here is not implemented yet.
 
+Interactive UI mockups are available in ``mockups/dual-chain/index.html``.
+See ``mockups/dual-chain/README.rst`` for the workflow and screenshots.
+
 Requirements
 ------------
 

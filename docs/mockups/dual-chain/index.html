@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOD Grid · Independent chains concept</title>
+  <link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+  <div class="concept-bar"><span class="concept-dot"></span><strong>INTERACTIVE UI CONCEPT</strong><span>Simulated preset changes and tails · no audio or device connection</span><button type="button" id="reset-demo">Reset demo</button></div>
+  <header class="app-header">
+    <div class="brand">MOD<span>GRID</span></div>
+    <div class="rig-title"><span class="eyebrow">DUAL CHAIN RIG</span><h1>Guitar + Voice</h1></div>
+    <div class="header-tools"><button type="button" id="help-button">How to use</button><span class="demo-label"><span class="status-dot"></span>Demo mode</span></div>
+  </header>
+  <nav class="tabs" aria-label="Rig views">
+    <button type="button" data-view="perform"><span>01</span>Perform</button>
+    <button type="button" data-view="library"><span>02</span>Preset library</button>
+    <button type="button" data-view="masters"><span>03</span>Master presets</button>
+    <button type="button" data-view="switches"><span>04</span>MIDI switches</button>
+  </nav>
+  <main id="content"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="name-dialog"><form method="dialog"><span class="eyebrow">SAVE AS</span><h2 id="dialog-title">Name your preset</h2><label>Name<input id="dialog-name" maxlength="80" required autocomplete="off"></label><p id="dialog-context"></p><div class="dialog-actions"><button type="button" id="dialog-cancel">Cancel</button><button type="submit" class="primary">Save</button></div></form></dialog>
+  <dialog id="help-dialog"><form method="dialog"><span class="eyebrow">TRY THE WORKFLOW</span><h2>One rig. Two independent chains.</h2><ol><li>In <strong>Perform</strong>, click Next on Microphone. Guitar keeps its preset.</li><li>Select a different Guitar preset. Watch the previous reverb tail retire.</li><li>Recall <strong>Chorus</strong> to select both chains together.</li><li>In <strong>Preset library</strong>, edit Vocal Dry. Verse and Chorus share that definition.</li><li>In <strong>MIDI switches</strong>, choose each switch's target and action, then Apply assignments.</li></ol><p class="muted">This prototype demonstrates the workflow. It does not process sound or communicate with a controller.</p><button type="submit" class="primary">Start exploring</button></form></dialog>
+  <script src="mockup.js"></script>
+</body>
+</html>
