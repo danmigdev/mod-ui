@@ -2,6 +2,10 @@
 # when checked out on Windows so a stray CR never breaks a shebang or a command.
 scripts/deploy-tone3000/*.sh text eol=lf
 scripts/deploy-tone3000/*.py text eol=lf
+scripts/rpi4-pisound/*.sh text eol=lf
+scripts/rpi4-pisound/*.py text eol=lf
+scripts/rpi4-pisound/*.patch text eol=lf
+scripts/rpi4-pisound/mod-host-patches/*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
 
 # Frontend files are deployed to the (Linux) device as-is; keep them LF so a
 # Windows checkout doesn't push CRLF and make on-device diffs unreadable.

@@ -2,11 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // "Plugin Store": browse/search/install/update/remove plugins from
-// Patchstorage, in the grid theme's own visual style. The data fetch/
-// transform/merge logic mirrors the default theme's html/js/patchstorage.js
-// (proven against the real Patchstorage API and /effect/install), but none of
-// its rendering — that file is built on the default theme's window/Mustache-
-// template machinery, which the grid theme doesn't use anywhere else. See
+// Patchstorage, in the grid theme's own visual style. Catalog and installation
+// integration follows MODEP while keeping the Grid UI. See
 // PATCHSTORAGE_API_URL/PLATFORM_ID/TARGET_ID in grid.html's bootstrap script
 // (same server context grid() shares with index(), see mod/webserver.py).
 
@@ -20,6 +17,9 @@ var GridStore = (function () {
     // already kept current by loadShelf() elsewhere, so re-deriving the merge
     // on every render() is cheap and never goes stale.
     var cloudPlugins = null // uri -> transformed cloud plugin
+    var cloudLoading = false
+    var cloudError = false
+    var cloudCallbacks = []
     var category = 'All'
     var statusFilter = 'all'
 
@@ -38,6 +38,7 @@ var GridStore = (function () {
         outdated: 'Update available',
         unavailable: 'Removed from store',
         local: 'Local',
+        partial: 'Partially installed',
     }
 
     var FILTERS = [['all', 'All'], ['installed', 'Installed'], ['available', 'Available'],
@@ -48,6 +49,17 @@ var GridStore = (function () {
             if (CATEGORY_FROM_TAG[tags[i]]) return CATEGORY_FROM_TAG[tags[i]]
         }
         return 'Other'
+    }
+
+    function storeEnabled() {
+        return (PATCHSTORAGE_ENABLED === true || PATCHSTORAGE_ENABLED === 'true') &&
+            typeof PATCHSTORAGE_TARGET_ID !== 'undefined' && /^[1-9][0-9]*$/.test(String(PATCHSTORAGE_TARGET_ID))
+    }
+
+    function revision(value) {
+        if (value === null || value === undefined) return null
+        var text = String(value).trim()
+        return text || null
     }
 
     // Patchstorage's REST API, transformed into the flat shape the rest of
@@ -72,9 +84,11 @@ var GridStore = (function () {
         addTags(p.categories)
         addTags(p.tags)
 
-        var supported = true
+        var supported = !Array.isArray(p.targets) || p.targets.some(function (target) {
+            return String(target.id) === String(PATCHSTORAGE_TARGET_ID)
+        })
         var file = null
-        if (p.files && p.files.length) {
+        if (Array.isArray(p.files)) {
             file = p.files.filter(function (f) {
                 return f.target && String(f.target.id) === String(PATCHSTORAGE_TARGET_ID)
             })[0] || null
@@ -84,7 +98,7 @@ var GridStore = (function () {
         var uids = p.uids || []
         return {
             psid: String(p.id),
-            cloud_revision: p.revision,
+            cloud_revision: revision(p.revision),
             uri: uids.length === 1 ? uids[0] : ('bundle_' + p.id),
             uids: uids,
             name: unescape(p.title || ''),
@@ -116,7 +130,7 @@ var GridStore = (function () {
             category: (instance.category && instance.category[0]) || 'Other',
             thumbnail_href: instance.gui ? '/effect/image/thumbnail.png?uri=' + escape(instance.uri) + '&v=' + VERSION : '',
             screenshot_href: instance.gui ? '/effect/image/screenshot.png?uri=' + escape(instance.uri) + '&v=' + VERSION : '',
-            local_revision: instance.patchstorage ? instance.patchstorage.revision : null,
+            local_revision: instance.patchstorage ? revision(instance.patchstorage.revision) : null,
             psid: instance.patchstorage ? String(instance.patchstorage.id) : null,
         }
     }
@@ -125,7 +139,10 @@ var GridStore = (function () {
     // reflect what's actually installed on disk); cloud data adds the
     // store-only bits (install file, counts, links) needed to offer update.
     function mergePlugin(local, cloud) {
-        if (!cloud) return $.extend({}, local, { status: local.local_revision ? 'unavailable' : 'local' })
+        if (!cloud) return $.extend({}, local, {
+            status: local.psid ? (storeEnabled() && cloudPlugins !== null ? 'unavailable' : 'installed') : 'local',
+            installed_uris: [local.uri],
+        })
         if (!local) return $.extend({}, cloud, { status: 'available' })
         var merged = $.extend({}, local, {
             psid: cloud.psid,
@@ -138,17 +155,53 @@ var GridStore = (function () {
             donate_url: cloud.donate_url,
             source_code_url: cloud.source_code_url,
             plugin_count: cloud.plugin_count,
+            installed_uris: [local.uri],
             status: 'installed',
         })
-        if (local.local_revision && cloud.cloud_revision && local.local_revision !== cloud.cloud_revision) {
+        if (local.local_revision !== null && cloud.cloud_revision !== null && local.local_revision !== cloud.cloud_revision) {
             merged.status = 'outdated'
         }
         return merged
     }
 
+    function mergeBundle(local, cloud) {
+        var members = Object.keys(local).filter(function (uri) {
+            return cloud.uids.indexOf(uri) >= 0 || local[uri].psid === cloud.psid
+        })
+        if (!members.length) return mergePlugin(null, cloud)
+        var installedCount = cloud.uids.filter(function (uri) { return !!local[uri] }).length
+        var revisions = []
+        var hasUpdate = false
+        members.forEach(function (uri) {
+            var value = local[uri].local_revision
+            if (value !== null && revisions.indexOf(value) < 0) revisions.push(value)
+            if (value !== null && cloud.cloud_revision !== null && value !== cloud.cloud_revision) hasUpdate = true
+        })
+        var result = $.extend({}, cloud, {
+            installed_uris: members,
+            installed_count: installedCount,
+            local_revision: revisions.length ? revisions.join(', ') : null,
+            has_update: hasUpdate,
+            status: installedCount < cloud.uids.length ? 'partial' : (hasUpdate ? 'outdated' : 'installed'),
+        })
+        members.forEach(function (uri) { delete local[uri] })
+        return result
+    }
+
     function fetchCloudPlugins(callback) {
-        if (cloudPlugins) { callback(); return }
-        if (PATCHSTORAGE_ENABLED !== 'true') { cloudPlugins = {}; callback(); return }
+        if (cloudPlugins !== null || !storeEnabled()) { callback(); return }
+        if (cloudCallbacks.indexOf(callback) < 0) cloudCallbacks.push(callback)
+        if (cloudLoading) return
+        cloudLoading = true
+
+        function finish(error) {
+            cloudLoading = false
+            cloudError = !!error
+            cloudPlugins = error ? null : map
+            var callbacks = cloudCallbacks
+            cloudCallbacks = []
+            callbacks.forEach(function (ready) { ready() })
+        }
 
         var base = PATCHSTORAGE_API_URL + '?per_page=100&platforms=' + PATCHSTORAGE_PLATFORM_ID +
             '&targets=' + PATCHSTORAGE_TARGET_ID
@@ -160,21 +213,21 @@ var GridStore = (function () {
                 url: base + '&page=' + page,
                 cache: false,
                 dataType: 'json',
+                timeout: 15000,
                 success: function (data, status, xhr) {
-                    if (!data || !data.length) { cloudPlugins = map; callback(); return }
+                    if (!Array.isArray(data)) { finish(true); return }
+                    if (!data.length) { finish(false); return }
                     var pages = parseInt(xhr.getResponseHeader('x-wp-totalpages'), 10) || 1
                     data.forEach(function (p) {
                         var t = transformCloudPlugin(p)
                         if (t.supported && t.uids.length) map[t.uri] = t
                     })
                     if (pages > page) { page++; nextPage() }
-                    else { cloudPlugins = map; callback() }
+                    else finish(false)
                 },
                 error: function (xhr, status) {
-                    if (status === 'abort') return
-                    notify('error', 'Could not reach Patchstorage')
-                    cloudPlugins = {}
-                    callback()
+                    if (status !== 'abort') notify('error', 'Could not reach Patchstorage')
+                    finish(true)
                 },
             })
         }
@@ -186,16 +239,10 @@ var GridStore = (function () {
         pluginLibrary.forEach(function (p) { local[p.uri] = transformLocalPlugin(p) })
 
         var merged = {}
-        Object.keys(cloudPlugins || {}).forEach(function (key) {
+        Object.keys(storeEnabled() ? (cloudPlugins || {}) : {}).forEach(function (key) {
             var cP = cloudPlugins[key]
             if (cP.uids.length > 1) {
-                if (local[cP.uids[0]]) {
-                    cP.uids.forEach(function (uri) {
-                        if (local[uri]) { merged[uri] = mergePlugin(local[uri], cP); delete local[uri] }
-                    })
-                } else {
-                    merged['bundle_' + cP.psid] = mergePlugin(null, cP)
-                }
+                merged['bundle_' + cP.psid] = mergeBundle(local, cP)
             } else {
                 var uri = cP.uids[0]
                 if (local[uri]) { merged[uri] = mergePlugin(local[uri], cP); delete local[uri] }
@@ -208,43 +255,41 @@ var GridStore = (function () {
 
     function matchesFilter(p) {
         switch (statusFilter) {
-            case 'installed': return p.status === 'installed' || p.status === 'outdated'
-            case 'available': return p.status === 'available'
-            case 'outdated': return p.status === 'outdated'
+            case 'installed': return p.status === 'installed' || p.status === 'outdated' || p.status === 'partial'
+            case 'available': return p.status === 'available' || p.status === 'partial'
+            case 'outdated': return p.status === 'outdated' || p.has_update
             case 'other': return p.status === 'local' || p.status === 'unavailable'
             default: return true
         }
     }
 
     function render() {
-        if (PATCHSTORAGE_ENABLED !== 'true') {
-            tabsEl.empty()
-            filterEl.empty()
-            gridEl.empty().append($('<div class="grid-store-empty">').text('Patchstorage is not enabled on this device.'))
-            countEl.text('')
-            return
+        if (storeEnabled() && cloudPlugins === null && !cloudError) {
+            fetchCloudPlugins(renderContent)
         }
-        fetchCloudPlugins(function () {
-            var merged = currentMerged()
-            var q = (searchInput.val() || '').toLowerCase().trim()
-            var counts = { All: 0 }
-            CATEGORIES.forEach(function (c) { counts[c] = 0 })
-            var filtered = []
+        renderContent()
+    }
 
-            Object.keys(merged).forEach(function (key) {
-                var p = merged[key]
-                if (!matchesFilter(p)) return
-                var idx = (p.name + ' ' + (p.comment || '') + ' ' + (p.uploader || p.brand || '')).toLowerCase()
-                if (q && idx.indexOf(q) < 0) return
-                counts.All++
-                if (counts[p.category] !== undefined) counts[p.category]++
-                if (category === 'All' || p.category === category) filtered.push(p)
-            })
+    function renderContent() {
+        var merged = currentMerged()
+        var q = (searchInput.val() || '').toLowerCase().trim()
+        var counts = { All: 0 }
+        CATEGORIES.forEach(function (c) { counts[c] = 0 })
+        var filtered = []
 
-            renderTabs(counts)
-            renderFilters()
-            renderGrid(filtered)
+        Object.keys(merged).forEach(function (key) {
+            var p = merged[key]
+            if (!matchesFilter(p)) return
+            var idx = (p.name + ' ' + (p.comment || '') + ' ' + (p.uploader || p.brand || '')).toLowerCase()
+            if (q && idx.indexOf(q) < 0) return
+            counts.All++
+            if (counts[p.category] !== undefined) counts[p.category]++
+            if (category === 'All' || p.category === category) filtered.push(p)
         })
+
+        renderTabs(counts)
+        renderFilters()
+        renderGrid(filtered)
     }
 
     function renderTabs(counts) {
@@ -274,6 +319,18 @@ var GridStore = (function () {
         })
         gridEl.empty()
         countEl.text(list.length + (list.length === 1 ? ' plugin' : ' plugins'))
+        if (!storeEnabled() || cloudError || cloudLoading) {
+            var note = $('<div class="grid-store-empty">')
+            if (!storeEnabled()) note.text('Patchstorage downloads are disabled. Installed plugins remain available.')
+            else if (cloudError) {
+                note.text('Patchstorage is unavailable. Showing installed plugins. ')
+                note.append($('<button type="button" class="grid-store-filter-btn">').text('Retry').click(function () {
+                    cloudError = false
+                    render()
+                }))
+            } else note.text('Loading Patchstorage. Showing installed plugins.')
+            gridEl.append(note)
+        }
         if (!list.length) {
             gridEl.append($('<div class="grid-store-empty">').text('No plugins found'))
             return
@@ -282,12 +339,13 @@ var GridStore = (function () {
     }
 
     function buildCard(p) {
-        var card = $('<div class="grid-store-card">')
+        var card = $('<div class="grid-store-card">').attr('data-store-uri', p.uri).attr('data-store-status', p.status)
         var thumb = $('<div class="grid-store-card-thumb">')
         if (p.thumbnail_href) thumb.append($('<img loading="lazy">').attr('src', p.thumbnail_href))
         card.append(thumb)
         var label = STATUS_LABEL[p.status]
-        if (label) card.append($('<span class="grid-store-badge grid-store-badge-' + p.status + '">').text(label))
+        if (label) card.append($('<span class="grid-store-badge grid-store-badge-' +
+            (p.status === 'partial' ? 'outdated' : p.status) + '">').text(label))
         card.append($('<div class="grid-store-card-name">').text(p.name).attr('title', p.name))
         card.append($('<div class="grid-store-card-author">').text(p.uploader || p.brand || ''))
         card.click(function () { openDetail(p) })
@@ -303,7 +361,7 @@ var GridStore = (function () {
     }
 
     function linkBtn(href, label) {
-        if (!href) return null
+        if (!href || !/^https?:\/\//i.test(href)) return null
         return $('<a class="grid-store-link-btn" target="_blank" rel="noopener">').attr('href', href).text(label)
     }
 
@@ -325,6 +383,8 @@ var GridStore = (function () {
             metaRow('Author', p.uploader || p.brand),
             metaRow('Installed revision', p.local_revision),
             metaRow('Latest revision', p.cloud_revision),
+            metaRow('Installed plugins', p.plugin_count > 1 && p.installed_count !== undefined ?
+                p.installed_count + ' / ' + p.plugin_count : null),
             metaRow('Downloads', p.download_count),
         ].forEach(function (row) { if (row) meta.append(row) })
         detailInner.append(meta)
@@ -340,14 +400,14 @@ var GridStore = (function () {
         if (links.children().length) detailInner.append(links)
 
         var actions = $('<div class="grid-store-detail-actions">')
-        if (p.status === 'available' || p.status === 'outdated') {
+        if (p.status === 'available' || p.status === 'outdated' || p.status === 'partial') {
             var installBtn = $('<button type="button" class="grid-store-action-btn">')
-                .text(p.status === 'outdated' ? 'Update' : 'Install')
+                .text(p.status === 'partial' ? 'Install missing' : (p.status === 'outdated' ? 'Update' : 'Install'))
             installBtn.prop('disabled', !p.supported)
             installBtn.click(function () { installPlugin(p, installBtn) })
             actions.append(installBtn)
         }
-        if (p.status === 'installed' || p.status === 'outdated' || p.status === 'local' || p.status === 'unavailable') {
+        if (p.status === 'installed' || p.status === 'outdated' || p.status === 'partial' || p.status === 'local' || p.status === 'unavailable') {
             var removeBtn = $('<button type="button" class="grid-store-action-btn grid-store-action-danger">').text('Remove')
             removeBtn.click(function () { removePlugin(p, removeBtn) })
             actions.append(removeBtn)
@@ -388,6 +448,12 @@ var GridStore = (function () {
             dataType: 'json',
             success: function (full) {
                 var file = null
+                if (full && revision(full.revision) !== null) {
+                    p.cloud_revision = revision(full.revision)
+                    Object.keys(cloudPlugins || {}).forEach(function (key) {
+                        if (cloudPlugins[key].psid === p.psid) cloudPlugins[key].cloud_revision = p.cloud_revision
+                    })
+                }
                 if (full && full.files && full.files.length) {
                     file = full.files.filter(function (f) {
                         return f.target && String(f.target.id) === String(PATCHSTORAGE_TARGET_ID)
@@ -400,6 +466,7 @@ var GridStore = (function () {
     }
 
     function installPlugin(p, btn) {
+        if (!storeEnabled()) { notify('error', 'Patchstorage downloads are disabled'); return }
         btn.prop('disabled', true)
         fetchInstallFile(p, function (file) {
             if (!file || !file.url) {
@@ -426,12 +493,15 @@ var GridStore = (function () {
                     headers: {
                         'Content-Type': blob.type || 'application/octet-stream',
                         'Patchstorage-Item': p.psid,
-                        'Patchstorage-Item-Version': p.cloud_revision || '',
+                        'Patchstorage-Item-Version': revision(p.cloud_revision) || '0.0',
                     },
                     body: blob,
                 })
             })
-            .then(function (r) { return r.json() })
+            .then(function (r) {
+                if (r.ok === false) throw new Error('installation request failed (' + r.status + ')')
+                return r.json()
+            })
             .then(function (resp) {
                 var result = resp && resp.result
                 if (!result || !result.ok) {
@@ -452,37 +522,55 @@ var GridStore = (function () {
     function removePlugin(p, btn) {
         if (!window.confirm('Remove "' + p.name + '"? Any pedalboard using it may break.')) return
         btn.prop('disabled', true)
-        $.ajax({
+        var uris = p.installed_uris || [p.uri]
+        var pending = uris.length
+        var bundles = []
+        var failed = false
+
+        function bundleResolved(full) {
+            if (!full || !Array.isArray(full.bundles) || !full.bundles.length) failed = true
+            else full.bundles.forEach(function (path) { if (bundles.indexOf(path) < 0) bundles.push(path) })
+            pending--
+            if (pending) return
+            if (failed || !bundles.length) {
+                notify('error', "Couldn't find files for " + p.name)
+                btn.prop('disabled', false)
+                return
+            }
+            uninstallBundles()
+        }
+
+        function uninstallBundles() {
+            $.ajax({
+                url: '/package/uninstall',
+                type: 'POST',
+                contentType: 'application/json',
+                processData: false,
+                data: JSON.stringify(bundles),
+                cache: false,
+                dataType: 'json',
+                success: function (resp) {
+                    if (!resp || !resp.ok) {
+                        notify('error', "Couldn't remove " + p.name + (resp && resp.error ? ': ' + resp.error : ''))
+                        btn.prop('disabled', false)
+                        return
+                    }
+                    notify('info', p.name + ' removed')
+                    detailOverlay.addClass('grid-hidden')
+                    refreshAfterChange()
+                },
+                error: function () { notify('error', "Couldn't remove " + p.name); btn.prop('disabled', false) },
+            })
+        }
+
+        uris.forEach(function (uri) { $.ajax({
             url: '/effect/get',
-            data: { uri: p.uri, version: VERSION },
+            data: { uri: uri, version: VERSION },
             cache: false,
             dataType: 'json',
-            success: function (full) {
-                var bundles = (full && full.bundles) || []
-                if (!bundles.length) { notify('error', "Couldn't find files for " + p.name); btn.prop('disabled', false); return }
-                $.ajax({
-                    url: '/package/uninstall',
-                    type: 'POST',
-                    contentType: 'application/json',
-                    processData: false,
-                    data: JSON.stringify(bundles),
-                    cache: false,
-                    dataType: 'json',
-                    success: function (resp) {
-                        if (!resp || !resp.ok) {
-                            notify('error', "Couldn't remove " + p.name + (resp && resp.error ? ': ' + resp.error : ''))
-                            btn.prop('disabled', false)
-                            return
-                        }
-                        notify('info', p.name + ' removed')
-                        detailOverlay.addClass('grid-hidden')
-                        refreshAfterChange()
-                    },
-                    error: function () { notify('error', "Couldn't remove " + p.name); btn.prop('disabled', false) },
-                })
-            },
-            error: function () { notify('error', "Couldn't remove " + p.name); btn.prop('disabled', false) },
-        })
+            success: bundleResolved,
+            error: function () { bundleResolved(null) },
+        }) })
     }
 
     return {
@@ -505,6 +593,7 @@ var GridStore = (function () {
         },
         open: function () {
             overlay.removeClass('grid-hidden')
+            cloudError = false
             render()
         },
         close: function () {

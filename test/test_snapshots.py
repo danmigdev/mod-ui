@@ -52,17 +52,19 @@ class TestSnapshotFreshSession(ModUITestCase):
         self.assertEqual(response.code, 200)
         self.assertEqual(body, {"ok": True, "name": "Default"})
 
-    def test_save_after_reset_succeeds_since_reset_seeds_snapshot_0(self):
-        # SESSION.reset() leaves current_pedalboard_snapshot_id == 0 with a
-        # real snapshot at index 0 (see host.py snapshot_clear()), so
-        # SnapshotSave succeeds here -- contrast with
-        # TestSnapshotSaveWithoutAnyReset below, which pins the *true*
-        # "nothing to save" shape (current_pedalboard_snapshot_id == -1).
+    def test_save_requires_a_persisted_pedalboard_even_with_snapshot_0(self):
+        # A default in-memory snapshot has no destination after reset.
         response = self.fetch("/snapshot/save", method="POST", body="")
         self.assertEqual(response.code, 200)
-        self.assertEqual(response.body, b"true")
+        self.assertEqual(response.body, b"false")
+
+    def test_saveas_requires_a_persisted_pedalboard(self):
+        response, payload = self.fetch_json("/snapshot/saveas?title=Foo")
+        self.assertEqual(response.code, 200)
+        self.assertEqual(payload, {"ok": False, "id": None, "title": ""})
 
     def test_saveas_creates_new_snapshot_and_appears_in_list(self):
+        self.fetch("/pedalboard/save", method="POST", body="title=SnapshotBoard&asNew=1")
         response, payload = self.fetch_json("/snapshot/saveas?title=Foo")
         self.assertEqual(response.code, 200)
         self.assertEqual(payload["ok"], True)

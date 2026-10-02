@@ -199,6 +199,25 @@ var GridParams = (function () {
         symbolRows[':bypass'] = activeRow
 
         var inputs = (pluginData.ports && pluginData.ports.control && pluginData.ports.control.input) || []
+        // Older plugins may omit groups or refer to metadata that is unavailable.
+        // Keep those controls visible; headings only organize known nonempty groups.
+        var portGroups = pluginData.portGroups || []
+        var groups = []
+        var groupByUri = Object.create(null)
+        portGroups.forEach(function (group, position) {
+            if (!group || !group.uri || groupByUri[group.uri]) return
+            var index = Number(group.index)
+            var entry = {
+                name: group.name || group.symbol || 'Controls',
+                index: group.index !== undefined && isFinite(index) ? index : Infinity,
+                position: position,
+                rows: [],
+            }
+            groups.push(entry)
+            groupByUri[group.uri] = entry
+        })
+        var ungroupedRows = []
+
         inputs.forEach(function (port) {
             if (shouldSkipPort(port)) return
 
@@ -217,8 +236,23 @@ var GridParams = (function () {
                 built = buildSliderRow(port.name, value, port.ranges.minimum, port.ranges.maximum, isInteger, defaultValue,
                     function (v) { gui.setPortValue(port.symbol, v) })
             }
-            genericPane.append(built.row)
+            var group = groupByUri[port.group]
+            if (group) group.rows.push(built.row)
+            else ungroupedRows.push(built.row)
             symbolRows[port.symbol] = built
+        })
+
+        ungroupedRows.forEach(function (row) { genericPane.append(row) })
+        groups.sort(function (a, b) {
+            if (a.index !== b.index) return a.index - b.index
+            return a.position - b.position
+        })
+        groups.forEach(function (group) {
+            if (!group.rows.length) return
+            var section = $('<section class="grid-param-group">').attr('aria-label', group.name)
+            section.append($('<h3 class="grid-param-group-heading">').text(group.name))
+            group.rows.forEach(function (row) { section.append(row) })
+            genericPane.append(section)
         })
 
         return symbolRows

@@ -660,6 +660,11 @@ function connectWebSocket() {
         if (cmd === "ping") { ws.send("pong"); return }
         if (cmd === "stop") return
         if (cmd === "cc-device-updated") return
+        if (cmd === "resetConnections") {
+            currentConnections = {}
+            if (!pbLoading) rewireChain()
+            return
+        }
 
         data = data.substr(cmd.length + 1)
 

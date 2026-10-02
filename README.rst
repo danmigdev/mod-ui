@@ -4,6 +4,12 @@ mod-ui
 This is the UI for the MOD software. It's a webserver that delivers an HTML5 interface and communicates with mod-host.
 It also communicates with the MOD hardware, but does not depend on it to run.
 
+The ``rpi4-pisound-integration`` branch combines current MOD Audio updates with
+selected MODEP features for Raspberry Pi 4, Pisound and 64-bit Patchbox OS,
+while retaining the Grid theme. Follow the `paired UI/host build and deployment
+guide <docs/rpi4-pisound-integration.rst>`_ for that system. The
+`upstream audit <docs/upstream-branch-audit.rst>`_ records the source selections.
+
 Install
 -------
 
@@ -18,7 +24,7 @@ NOTE: libjack-jackd2-dev can be replaced by libjack-dev if you are using JACK1; 
 
 Start by cloning the repository::
 
-    $ git clone --branch grid-theme https://github.com/danmigdev/mod-ui.git
+    $ git clone --branch rpi4-pisound-integration https://github.com/danmigdev/mod-ui.git
     $ cd mod-ui
 
 Create a python virtualenv::
@@ -110,6 +116,15 @@ Plugin store and files
 The grid theme has its own plugin store (Patchstorage) and an Explorer-style file manager,
 both built in its own visual style:
 
+Patchstorage browsing and installation work without a registered MOD device.
+The backend selects binaries for the running userspace ABI and records each
+installed bundle's store revision. The store shows updates and partially
+installed bundles; local plugins remain accessible when the catalog is offline.
+``MOD_PATCHSTORAGE_*`` configuration also accepts MODEP's ``PATCHSTORAGE_*``
+environment names. For this target the public platform is ``8046`` and the
+ARM64 target is ``8280``. Plugin presets can use a separate writable directory
+through ``MOD_PRESETS_DIR``.
+
 .. image:: docs/screenshots/plugin-store.jpg
    :alt: Plugin store in the Grid theme
 
@@ -119,16 +134,23 @@ both built in its own visual style:
 Installing this branch on a device
 ----------------------------------
 
-This branch is a superset of ``master``: the grid theme, the TONE3000 integration, the grid
-file-manager backend and some small backend fixes, on top of everything ``master`` has.
+This branch includes MOD Audio ``master`` at ``eebb9c73``, the Grid theme,
+TONE3000, the file manager, and selected MODEP compatibility features.
+It also carries a reviewed mod-host patch series, with source pins and native
+build scripts in ``scripts/rpi4-pisound/``.
 
-**From source / your own image.** Check out ``grid-theme`` and follow *Install* and *Run*
-above (or build your device image from it). You get everything, nothing else to do. This is
-the clean path.
+**Raspberry Pi 4 / Pisound / Patchbox OS 64-bit.** Use the
+`integration guide <docs/rpi4-pisound-integration.rst>`_. It builds the paired
+UI and host beside the packaged programs and activates them with reversible
+MODEP service overrides. Rebuild the native library with this Python wrapper.
+
+**Other source installations.** Follow *Install* and *Run* above, with a compatible
+mod-host and JACK server. Grid is available at ``/grid.html``.
 
 **On a device that runs mod-ui as a distro package** (Blokas' ``modep-mod-ui``, sealed MOD
-images) the source tree can't be swapped. ``scripts/deploy-tone3000/`` patches an installed
-mod-ui in place — from a checkout of this branch, on a machine that can SSH to the device::
+images), the older ``scripts/deploy-tone3000/`` workflow patches UI features in
+place. It does not install the paired host or the complete Raspberry integration.
+Its command, from a machine that can SSH to the device, is::
 
     $ scripts/deploy-tone3000/deploy.sh --host user@device --key t3k_pub_xxxxxxxx
 

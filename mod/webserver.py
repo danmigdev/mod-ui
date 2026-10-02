@@ -13,6 +13,10 @@ import time
 import urllib.parse
 import re
 import unicodedata
+import tempfile
+
+from mod.patchstorage import validate_install_options, write_install_metadata
+from mod.plugin_install import validate_plugin_archive
 
 from base64 import b64decode, b64encode
 from datetime import timedelta
@@ -45,6 +49,8 @@ from mod.settings import (DESKTOP, LOG, DEV_API,
                           FAVORITES_JSON_FILE, PREFERENCES_JSON_FILE, USER_ID_JSON_FILE,
                           DEV_HOST, UNTITLED_PEDALBOARD_NAME, MODEL_CPU, MODEL_TYPE, PEDALBOARDS_LABS_HTTP_ADDRESS,
                           FEEDBACK_URL, API_KEY, TONE3000_CLIENT_ID, TONE3000_API)
+from mod.settings import (PATCHSTORAGE_ENABLED, PATCHSTORAGE_API_URL,
+                          PATCHSTORAGE_PLATFORM_ID, PATCHSTORAGE_TARGET_ID)
 
 from mod import (
     TextFileFlusher, WINDOWS,
@@ -82,14 +88,15 @@ def mod_squeeze(text):
     return squeeze(text.replace("\\", "\\\\").replace("'", "\\'"))
 
 @gen.coroutine
-def install_bundles_in_tmp_dir(callback):
+def install_bundles_in_tmp_dir(callback, staging_dir=None):
+    staging_dir = staging_dir or DOWNLOAD_TMP_DIR
     error     = ""
     removed   = []
     installed = []
     pluginsWereRemoved = False
 
-    for bundle in os.listdir(DOWNLOAD_TMP_DIR):
-        tmppath    = os.path.join(DOWNLOAD_TMP_DIR, bundle)
+    for bundle in os.listdir(staging_dir):
+        tmppath    = os.path.join(staging_dir, bundle)
         bundlepath = os.path.join(LV2_PLUGIN_DIR, bundle)
 
         if os.path.exists(bundlepath):
@@ -139,8 +146,8 @@ def install_bundles_in_tmp_dir(callback):
 
     if error or len(installed) == 0:
         # Delete old temp files
-        for bundle in os.listdir(DOWNLOAD_TMP_DIR):
-            shutil.rmtree(os.path.join(DOWNLOAD_TMP_DIR, bundle))
+        for bundle in os.listdir(staging_dir):
+            shutil.rmtree(os.path.join(staging_dir, bundle))
 
         resp = {
             'ok'       : False,
@@ -172,7 +179,7 @@ def run_command(args, cwd, callback):
 
     ioloop.add_handler(proc.stdout.fileno(), end_fileno, 16)
 
-def install_package(filename, callback):
+def install_package(filename, callback, options=None):
     if not os.path.exists(filename):
         callback({
             'ok'       : False,
@@ -182,11 +189,44 @@ def install_package(filename, callback):
         })
         return
 
-    def end_untar_pkgs(resp):
-        os.remove(filename)
-        install_bundles_in_tmp_dir(callback)
+    options = options or {}
+    staging_dir = None
 
-    run_command(['tar','zxf', filename], DOWNLOAD_TMP_DIR, end_untar_pkgs)
+    def failed(error):
+        if os.path.exists(filename):
+            os.remove(filename)
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        callback({'ok': False, 'error': str(error), 'installed': [], 'removed': []})
+
+    try:
+        validate_install_options(options)
+        bundles = validate_plugin_archive(filename)
+        staging_dir = tempfile.mkdtemp(prefix='mod-plugin-install-')
+    except (ValueError, OSError) as error:
+        failed(error)
+        return
+
+    def finished(resp):
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        callback(resp)
+
+    def end_untar_pkgs(resp):
+        if resp[0] != 0:
+            failed('Failed to extract plugin archive')
+            return
+        try:
+            os.remove(filename)
+            write_install_metadata(staging_dir, options, bundles)
+            for bundle in bundles:
+                if not os.path.isfile(os.path.join(staging_dir, bundle, 'manifest.ttl')):
+                    raise ValueError('Plugin bundle has no manifest.ttl')
+        except (ValueError, OSError) as error:
+            failed(error)
+            return
+        install_bundles_in_tmp_dir(finished, staging_dir)
+
+    run_command(['tar', 'zxf', os.path.abspath(filename)], staging_dir, end_untar_pkgs)
 
 @gen.coroutine
 def restart_services(restartJACK2, restartUI):
@@ -774,7 +814,12 @@ class EffectInstaller(SimpleFileReceiver):
             reset_get_all_pedalboards_cache(kPedalboardInfoBoth)
             self.result = resp
             callback()
-        install_package(os.path.join(DOWNLOAD_TMP_DIR, basename), on_finish)
+        options = {}
+        patch_id = self.request.headers.get('Patchstorage-Item')
+        if patch_id is not None:
+            options['psid'] = patch_id
+            options['psversion'] = self.request.headers.get('Patchstorage-Item-Version') or '0.0'
+        install_package(os.path.join(DOWNLOAD_TMP_DIR, basename), on_finish, options)
 
 class EffectBulk(JsonRequestHandler):
     def prepare(self):
@@ -1451,6 +1496,11 @@ class PackageUninstall(JsonRequestHandler):
 
         self.write(resp)
 
+class PedalboardCurrent(JsonRequestHandler):
+    def get(self):
+        self.write(SESSION.host.pedalboard_path)
+
+
 class PedalboardList(JsonRequestHandler):
     def get(self):
         allpedals = get_all_pedalboards(kPedalboardInfoBoth)
@@ -1811,6 +1861,11 @@ class SnapshotName(JsonRequestHandler):
             'name': name
         })
 
+class SnapshotCurrent(JsonRequestHandler):
+    def get(self):
+        self.write(SESSION.host.snapshot_name() or DEFAULT_SNAPSHOT_NAME)
+
+
 class SnapshotLoad(JsonRequestHandler):
     @web.asynchronous
     @gen.engine
@@ -2014,6 +2069,10 @@ class TemplateHandler(TimelessRequestHandler):
             'tone3000_client_id': mod_squeeze(TONE3000_CLIENT_ID),
             'tone3000_api': mod_squeeze(TONE3000_API),
             't3k_api_key': self.get_t3k_api_key(),
+            'patchstorage_enabled': 'true' if PATCHSTORAGE_ENABLED else 'false',
+            'patchstorage_api_url': mod_squeeze(PATCHSTORAGE_API_URL),
+            'patchstorage_platform_id': PATCHSTORAGE_PLATFORM_ID,
+            'patchstorage_target_id': PATCHSTORAGE_TARGET_ID or '',
         }
         return context
 
@@ -2689,6 +2748,7 @@ application = web.Application(
 
             # pedalboard stuff
             (r"/pedalboard/list", PedalboardList),
+            (r"/pedalboard/current", PedalboardCurrent),
             (r"/pedalboard/save", PedalboardSave),
             (r"/pedalboard/pack_bundle/?", PedalboardPackBundle),
             (r"/pedalboard/load_bundle/", PedalboardLoadBundle),
@@ -2713,6 +2773,7 @@ application = web.Application(
             (r"/snapshot/list", SnapshotList),
             (r"/snapshot/name", SnapshotName),
             (r"/snapshot/load", SnapshotLoad),
+            (r"/snapshot/current", SnapshotCurrent),
 
             # bank stuff
             (r"/banks/?", BankLoad),

@@ -5,6 +5,7 @@
 import os
 from ctypes import *
 from mod import get_unique_name
+from mod.patchstorage import read_bundle_metadata
 from sys import platform
 
 # ------------------------------------------------------------------------------------------------------------
@@ -580,6 +581,16 @@ utils.get_all_plugins.restype  = POINTER(POINTER(PluginInfo_Mini))
 utils.get_plugin_info.argtypes = (c_char_p,)
 utils.get_plugin_info.restype  = POINTER(PluginInfo)
 
+# This additive export keeps the existing plugin structs intact. Libraries
+# without the optional export use the full-info lookup instead.
+try:
+    _native_plugin_bundle_path = utils.get_plugin_bundle_path
+except AttributeError:
+    _native_plugin_bundle_path = None
+else:
+    _native_plugin_bundle_path.argtypes = (c_char_p,)
+    _native_plugin_bundle_path.restype = c_char_p
+
 utils.get_non_cached_plugin_info.argtypes = (c_char_p,)
 utils.get_non_cached_plugin_info.restype  = POINTER(NonCachedPluginInfo)
 
@@ -740,7 +751,34 @@ def get_plugin_list():
 # get all available plugins
 # this triggers short scanning of all plugins
 def get_all_plugins():
-    return structPtrPtrToList(utils.get_all_plugins())
+    plugins = structPtrPtrToList(utils.get_all_plugins())
+    metadata_cache = {}
+    for plugin in plugins:
+        _add_patchstorage_metadata(plugin, metadata_cache)
+    return plugins
+
+
+def _add_patchstorage_metadata(info, metadata_cache=None):
+    if _native_plugin_bundle_path is not None:
+        path = charPtrToString(_native_plugin_bundle_path(info['uri'].encode('utf-8')))
+        bundle_paths = [path] if path else []
+    elif 'bundles' in info:
+        bundle_paths = info['bundles']
+    else:
+        full_info = utils.get_plugin_info(info['uri'].encode('utf-8'))
+        bundle_paths = charPtrPtrToStringList(full_info.contents.bundles) if full_info else []
+
+    for path in bundle_paths:
+        if metadata_cache is not None and path in metadata_cache:
+            metadata = metadata_cache[path]
+        else:
+            metadata = read_bundle_metadata(path)
+            if metadata_cache is not None:
+                metadata_cache[path] = metadata
+        if metadata is not None:
+            info['patchstorage'] = metadata
+            break
+    return info
 
 # get a specific plugin
 # NOTE: may throw
@@ -748,7 +786,7 @@ def get_plugin_info(uri):
     info = utils.get_plugin_info(uri.encode("utf-8"))
     if not info:
         raise Exception
-    return structToDict(info.contents)
+    return _add_patchstorage_metadata(structToDict(info.contents))
 
 # get a specific plugin (non-cached specific info)
 # NOTE: may throw

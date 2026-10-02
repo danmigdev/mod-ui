@@ -2099,6 +2099,14 @@ JqueryClass('pedalboard', {
         })
     },
 
+    // Clear displayed cables after a pedalboard change initiated outside the UI.
+    resetConnections: function () {
+        var self = $(this)
+        var connMgr = self.data('connectionManager')
+        connMgr.iterate(function (jack) { self.pedalboard('destroyJack', jack) })
+        connMgr.reset()
+    },
+
     // Removes all pedalboard data
     resetData: function () {
         var self = $(this)

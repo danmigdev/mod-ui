@@ -8,6 +8,8 @@ import os, sys
 from datetime import datetime
 from random import randint
 
+from modtools import tornado_compat  # noqa: F401; before early Tornado imports.
+
 
 def create_dummy_credentials():
     if not os.path.isfile(os.environ['MOD_DEVICE_TAG']):

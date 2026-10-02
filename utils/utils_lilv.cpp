@@ -4401,6 +4401,36 @@ const PluginInfo_Mini* const* get_all_plugins(void)
     return _get_plugs_mini_ret;
 }
 
+const char* get_plugin_bundle_path(const char* const uri)
+{
+    static std::string bundlePath;
+    bundlePath.clear();
+
+    if (W == nullptr || PLUGINS == nullptr || uri == nullptr)
+        return nullptr;
+
+    LilvNode* const uriNode = lilv_new_uri(W, uri);
+    if (uriNode == nullptr)
+        return nullptr;
+
+    const LilvPlugin* const plugin = lilv_plugins_get_by_uri(PLUGINS, uriNode);
+    lilv_node_free(uriNode);
+    if (plugin == nullptr)
+        return nullptr;
+
+    const LilvNode* const bundleNode = lilv_plugin_get_bundle_uri(plugin);
+    if (bundleNode == nullptr)
+        return nullptr;
+
+    char* const path = lilv_file_abspath(lilv_node_as_uri(bundleNode));
+    if (path == nullptr)
+        return nullptr;
+
+    bundlePath = path;
+    free(path);
+    return bundlePath.c_str();
+}
+
 const PluginInfo* get_plugin_info(const char* const uri_)
 {
     const std::string uri = uri_;

@@ -1,0 +1,2478 @@
+From 92bb1e4644d6692a8cf4766c75cbd79836765f04 Mon Sep 17 00:00:00 2001
+From: Danilo Migliarino <danilo.migliarino@gmail.com>
+Date: Sat, 3 Oct 2026 00:14:02 +0200
+Subject: [PATCH 11/11] Integrate portable MOD fixes and validate the Pisound
+ host protocol
+
+---
+ .gitattributes                   |    1 +
+ Makefile                         |    3 +
+ README.md                        |    4 +
+ docs/integration-manifest.json   | 1603 ++++++++++++++++++++++++++++++
+ docs/rpi4-pisound-integration.md |   85 ++
+ src/socket.c                     |  135 +--
+ tests/integration_test.py        |  254 +++++
+ tests/jack_probe.c               |   65 ++
+ tests/socket_send_test.c         |   18 +
+ tests/worker_response_test.c     |   46 +
+ utils/audit_branches.py          |   93 ++
+ 11 files changed, 2226 insertions(+), 81 deletions(-)
+ create mode 100644 .gitattributes
+ create mode 100644 docs/integration-manifest.json
+ create mode 100644 docs/rpi4-pisound-integration.md
+ create mode 100644 tests/integration_test.py
+ create mode 100644 tests/jack_probe.c
+ create mode 100644 tests/socket_send_test.c
+ create mode 100644 tests/worker_response_test.c
+ create mode 100644 utils/audit_branches.py
+
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..6313b56
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1 @@
++* text=auto eol=lf
+diff --git a/Makefile b/Makefile
+index 17fc54f..a0facef 100644
+--- a/Makefile
++++ b/Makefile
+@@ -173,6 +173,9 @@ clean:
+ test:
+ 	py.test tests/test_host.py
+ 
++integration-test: all
++	python3 tests/integration_test.py
++
+ # manual page rule
+ # Uses md2man to convert the README to groff man page
+ # https://github.com/sunaku/md2man
+diff --git a/README.md b/README.md
+index 0003243..681cb68 100644
+--- a/README.md
++++ b/README.md
+@@ -26,6 +26,10 @@ Currently the host supports the following LV2 features:
+ 
+ mod-host is part of the [MOD project](http://moddevices.com).
+ 
++For this branch's Raspberry Pi 4 / Pisound / 64-bit Patchbox OS integration,
++selected MOD/MODEP fixes and real JACK integration checks, see
++[the integration guide](docs/rpi4-pisound-integration.md).
++
+ 
+ Building
+ --------
+diff --git a/docs/integration-manifest.json b/docs/integration-manifest.json
+new file mode 100644
+index 0000000..5ec911d
+--- /dev/null
++++ b/docs/integration-manifest.json
+@@ -0,0 +1,1603 @@
++{
++  "audit_date": "2026-10-03",
++  "target": "Raspberry Pi 4 / Pisound / Patchbox OS 64-bit",
++  "integration_branch": "rpi4-pisound-integration",
++  "base_revision": "f14a230bf48b42035406d2b2dca038efa4d2abca",
++  "remotes": {
++    "origin": "https://github.com/mod-audio/mod-host.git",
++    "modep": "https://github.com/BlokasLabs/mod-host.git"
++  },
++  "branches": [
++    {
++      "branch": "modep/control-chain",
++      "revision": "299a3977476e8eb0285837fbd7522cec506a11de",
++      "commits_behind_base": 371,
++      "commits_ahead_of_base": 0,
++      "patch_unique_commit_count": 0,
++      "decision": "The branch is already an ancestor of the selected MOD master."
++    },
++    {
++      "branch": "modep/cpu_load",
++      "revision": "43cfebfd7b9d9f0dd9f70faa7882516fa7bfb8a2",
++      "commits_behind_base": 606,
++      "commits_ahead_of_base": 0,
++      "patch_unique_commit_count": 0,
++      "decision": "The branch is already an ancestor of the selected MOD master."
++    },
++    {
++      "branch": "modep/ext_state",
++      "revision": "3f94caf5d21981504d716e54579e5edd33e3857d",
++      "commits_behind_base": 577,
++      "commits_ahead_of_base": 0,
++      "patch_unique_commit_count": 0,
++      "decision": "The branch is already an ancestor of the selected MOD master."
++    },
++    {
++      "branch": "modep/jack_metadata",
++      "revision": "0f99974a5bd69aadee75d3ba06df142df56b3aeb",
++      "commits_behind_base": 574,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 1,
++      "decision": "Legacy audio-port pretty-name prototype; the current host already handles JACK metadata and Grid owns display names."
++    },
++    {
++      "branch": "modep/master",
++      "revision": "e5adb6723f5f30b195ca910faf8b3ae0eee366cf",
++      "commits_behind_base": 59,
++      "commits_ahead_of_base": 0,
++      "patch_unique_commit_count": 0,
++      "decision": "The branch is already an ancestor of the selected MOD master."
++    },
++    {
++      "branch": "modep/midi-control",
++      "revision": "4ec52263622f11ca7189ba047230d16028536dc2",
++      "commits_behind_base": 600,
++      "commits_ahead_of_base": 6,
++      "patch_unique_commit_count": 5,
++      "decision": "Legacy MIDI-control prototype superseded by current MIDI learn/map/unmap and property handling."
++    },
++    {
++      "branch": "modep/modep",
++      "revision": "44c7b18ccf964ca7a8aaa5dabcca969c5242226c",
++      "commits_behind_base": 35,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 1,
++      "decision": "The only unique commit removes GitHub Actions; it adds no runtime capability."
++    },
++    {
++      "branch": "modep/modep_2018.08",
++      "revision": "1726ad06b11323da7e1aaed690ff8aef91f702b5",
++      "commits_behind_base": 323,
++      "commits_ahead_of_base": 0,
++      "patch_unique_commit_count": 0,
++      "decision": "The branch is already an ancestor of the selected MOD master."
++    },
++    {
++      "branch": "modep/save_session",
++      "revision": "243dc3e1c250bb7067f02e48431ad555c5061e58",
++      "commits_behind_base": 574,
++      "commits_ahead_of_base": 2,
++      "patch_unique_commit_count": 2,
++      "decision": "Legacy session-saving prototype superseded by MOD UI pedalboards and current LV2 state/preset commands."
++    },
++    {
++      "branch": "modep/temposync",
++      "revision": "f4abb3a508d13a643dadf52ce8c52a2dc6288bba",
++      "commits_behind_base": 371,
++      "commits_ahead_of_base": 20,
++      "patch_unique_commit_count": 17,
++      "decision": "Legacy embedded Link/ASIO implementation superseded by current transport/MIDI sync and optional Hylia integration."
++    },
++    {
++      "branch": "modep/temposync2",
++      "revision": "299a3977476e8eb0285837fbd7522cec506a11de",
++      "commits_behind_base": 371,
++      "commits_ahead_of_base": 0,
++      "patch_unique_commit_count": 0,
++      "decision": "The branch is already an ancestor of the selected MOD master."
++    },
++    {
++      "branch": "origin/dwarf-pin-core0",
++      "revision": "11d5ae2584d142ce7ff09854244e1c656647b341",
++      "commits_behind_base": 34,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 1,
++      "decision": "Dwarf-specific CPU affinity is not appropriate for Raspberry Pi 4/Pisound."
++    },
++    {
++      "branch": "origin/external-ui",
++      "revision": "474fd82ff119266ab7cce0b593fb119556accf48",
++      "commits_behind_base": 60,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 1,
++      "decision": "Initial external-UI prototype; current master already has external-UI support and Grid uses browser plugin skins."
++    },
++    {
++      "branch": "origin/hotfix-1.10",
++      "revision": "55d162bf3bc8dbb983af53798455230a9dd2d0a3",
++      "commits_behind_base": 170,
++      "commits_ahead_of_base": 24,
++      "patch_unique_commit_count": 2,
++      "decision": "Stable buffer-change lifecycle fix selected from hotfix-1.13; other fixes are equivalent/superseded or target extra MOD playback ports and old Control Chain APIs."
++    },
++    {
++      "branch": "origin/hotfix-1.11",
++      "revision": "3ceaef7073029dcaeb0c121477f824e2291c8250",
++      "commits_behind_base": 95,
++      "commits_ahead_of_base": 20,
++      "patch_unique_commit_count": 2,
++      "decision": "Stable buffer-change lifecycle fix selected from hotfix-1.13; other fixes are equivalent/superseded or target extra MOD playback ports and old Control Chain APIs."
++    },
++    {
++      "branch": "origin/hotfix-1.13",
++      "revision": "f923f1437927b86ec638295d1de38f9d3926cc07",
++      "commits_behind_base": 34,
++      "commits_ahead_of_base": 6,
++      "patch_unique_commit_count": 2,
++      "decision": "Stable buffer-change lifecycle fix selected from hotfix-1.13; other fixes are equivalent/superseded or target extra MOD playback ports and old Control Chain APIs."
++    },
++    {
++      "branch": "origin/hotfix-1.4",
++      "revision": "a884cd9fe2b95490012bae62eb076c4b22c7174a",
++      "commits_behind_base": 367,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 0,
++      "decision": "Stable buffer-change lifecycle fix selected from hotfix-1.13; other fixes are equivalent/superseded or target extra MOD playback ports and old Control Chain APIs."
++    },
++    {
++      "branch": "origin/hotfix-1.6",
++      "revision": "a2ef7a054d2072d5229e3712b9bd22691ef3de4b",
++      "commits_behind_base": 323,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 0,
++      "decision": "Stable buffer-change lifecycle fix selected from hotfix-1.13; other fixes are equivalent/superseded or target extra MOD playback ports and old Control Chain APIs."
++    },
++    {
++      "branch": "origin/hotfix-1.9",
++      "revision": "b2e1f40ba4e165c834bbba69807f5fde35e0b3b6",
++      "commits_behind_base": 206,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 1,
++      "decision": "Stable buffer-change lifecycle fix selected from hotfix-1.13; other fixes are equivalent/superseded or target extra MOD playback ports and old Control Chain APIs."
++    },
++    {
++      "branch": "origin/jack_metadata",
++      "revision": "0f99974a5bd69aadee75d3ba06df142df56b3aeb",
++      "commits_behind_base": 574,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 1,
++      "decision": "Legacy audio-port pretty-name prototype; the current host already handles JACK metadata and Grid owns display names."
++    },
++    {
++      "branch": "origin/master",
++      "revision": "f14a230bf48b42035406d2b2dca038efa4d2abca",
++      "commits_behind_base": 0,
++      "commits_ahead_of_base": 0,
++      "patch_unique_commit_count": 0,
++      "decision": "The branch is already an ancestor of the selected MOD master."
++    },
++    {
++      "branch": "origin/master-dg",
++      "revision": "59e6304b8c1b24b2be8b714a74d1f2d38a219e55",
++      "commits_behind_base": 4,
++      "commits_ahead_of_base": 78,
++      "patch_unique_commit_count": 76,
++      "decision": "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++    },
++    {
++      "branch": "origin/memfd-create",
++      "revision": "6aa546d9237bb8fc88faa990aa9646127660bad0",
++      "commits_behind_base": 4,
++      "commits_ahead_of_base": 78,
++      "patch_unique_commit_count": 76,
++      "decision": "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++    },
++    {
++      "branch": "origin/midi-cc-monitor",
++      "revision": "a05c8dc2e3209d414b0511f95cc986e5ddf0a99e",
++      "commits_behind_base": 4,
++      "commits_ahead_of_base": 37,
++      "patch_unique_commit_count": 36,
++      "decision": "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++    },
++    {
++      "branch": "origin/midi-control",
++      "revision": "4ec52263622f11ca7189ba047230d16028536dc2",
++      "commits_behind_base": 600,
++      "commits_ahead_of_base": 6,
++      "patch_unique_commit_count": 5,
++      "decision": "Legacy MIDI-control prototype superseded by current MIDI learn/map/unmap and property handling."
++    },
++    {
++      "branch": "origin/midi_event",
++      "revision": "74578acc3583d7b0b697f9b14b4214efa5707f2e",
++      "commits_behind_base": 149,
++      "commits_ahead_of_base": 1,
++      "patch_unique_commit_count": 1,
++      "decision": "Prototype socket MIDI injection is unnecessary for JACK/Pisound MIDI; its parsing/error handling needs further work."
++    },
++    {
++      "branch": "origin/monitor-cpu-load",
++      "revision": "c902652163f57e8e129b8ef44dd3099c0f8f8739",
++      "commits_behind_base": 4,
++      "commits_ahead_of_base": 81,
++      "patch_unique_commit_count": 77,
++      "decision": "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++    },
++    {
++      "branch": "origin/optional-lv2-deactivate",
++      "revision": "2b8048a3daceac29aaf3dd78459647116b12ca7c",
++      "commits_behind_base": 4,
++      "commits_ahead_of_base": 78,
++      "patch_unique_commit_count": 76,
++      "decision": "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++    },
++    {
++      "branch": "origin/pablito",
++      "revision": "16e37d8bec7a955abb460e0f06b0319706a13fd9",
++      "commits_behind_base": 4,
++      "commits_ahead_of_base": 84,
++      "patch_unique_commit_count": 78,
++      "decision": "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++    },
++    {
++      "branch": "origin/save_session",
++      "revision": "243dc3e1c250bb7067f02e48431ad555c5061e58",
++      "commits_behind_base": 574,
++      "commits_ahead_of_base": 2,
++      "patch_unique_commit_count": 2,
++      "decision": "Legacy session-saving prototype superseded by MOD UI pedalboards and current LV2 state/preset commands."
++    },
++    {
++      "branch": "origin/split-lilv",
++      "revision": "2bfe4f6b50b62b5758428756a74b2bfff867319e",
++      "commits_behind_base": 4,
++      "commits_ahead_of_base": 81,
++      "patch_unique_commit_count": 79,
++      "decision": "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++    }
++  ],
++  "selected_upstream_commits": [
++    {
++      "upstream_revision": "486955fa713e7b7beda9e82411fee69dcb65fcb4",
++      "local_revision": "845075c26c111c49e9fecc273284ed3bb326e889",
++      "subject": "Fix handling multiple incoming messages at once"
++    },
++    {
++      "upstream_revision": "c1edf9f88b5fffe761cb793b293f4731002946ad",
++      "local_revision": "8ffdb3421bb63cf9177d436eb12742fb0b4360e9",
++      "subject": "Fix socket read with extra leftover null bytes"
++    },
++    {
++      "upstream_revision": "fae0c49ae0ec634e806aa228ea9511443900cf39",
++      "local_revision": "b7042349ef6f48b55636902d0800e7e6ca14d45d",
++      "subject": "Set TCP_NODELAY"
++    },
++    {
++      "upstream_revision": "9d4dc138cf417dba68573d50b908f7b57fe03cb4",
++      "local_revision": "dead6abd8496768e28e7e07878add42a9ba5f630",
++      "subject": "Fix socket reads of messages of exactly 1024 in size"
++    },
++    {
++      "upstream_revision": "0169b938882d0cd37c7daa130875c98ff388a056",
++      "local_revision": "21c69bbf38c970bcb8f907ae8f32155471e72ec5",
++      "subject": "worker: deal with incomplete ringbuffer writes"
++    },
++    {
++      "upstream_revision": "665ae0a2eb3d6750029a16d4e7f6f2319a896053",
++      "local_revision": "38f83e56d8848b8b1f42419dcb9087fb8b90bdb2",
++      "subject": "lock memory used for worker restore"
++    },
++    {
++      "upstream_revision": "eed327f7759356313fca79d0ee92d69ee06fabc6",
++      "local_revision": "4e3f80c387a0d34209b324539ac70c359506b0be",
++      "subject": "Delay worker responses until next run instead of trying to yield"
++    },
++    {
++      "upstream_revision": "e2bda738e2d6c14616b82f6452b8235c709ffd05",
++      "local_revision": "8e3f4598b0fba1e0128ec61b6153977cfe7b3bf4",
++      "subject": "Bump maximum bpm to 300"
++    },
++    {
++      "upstream_revision": "2bd134c764564ef1b7ff9e5ef70ba037841a9608",
++      "local_revision": "6a967bacbab9418c8eaa5b1e98fe744d90c84af5",
++      "subject": "Use new LILV_OPTION_OBJECT_INDEX option when supported"
++    },
++    {
++      "upstream_revision": "f923f1437927b86ec638295d1de38f9d3926cc07",
++      "local_revision": "af8b632f142f7d8a40364df557959601d54ea015",
++      "subject": "[de]activate plugins for buffer size changes"
++    }
++  ],
++  "candidate_commits": [
++    {
++      "revision": "009c7e9ff2ab1a44ab80db7aae596ef65489b0a2",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "010f52e1a7a35b4fc9af82f77058a307152b7751",
++      "branches": [
++        "origin/optional-lv2-deactivate"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "0169b938882d0cd37c7daa130875c98ff388a056",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "0622794d11f76ca4e7eecf4b0f9b89bdc43274b7",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "09264f9f1281dbfd87f8a6e2bdc68dd4bc36057e",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "09da3d91ef7f91aa37494534e54ee9ec9249943e",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "0a02b84363f5d5449ba3e2706fa41974cea9d1f5",
++      "branches": [
++        "modep/midi-control",
++        "origin/midi-control"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "0f99974a5bd69aadee75d3ba06df142df56b3aeb",
++      "branches": [
++        "modep/jack_metadata",
++        "origin/jack_metadata"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "0fa82d1a817f8e666af2857a6bc72fd1e6b045fc",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "11d5ae2584d142ce7ff09854244e1c656647b341",
++      "branches": [
++        "origin/dwarf-pin-core0"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "12c91a259e8748876b3c907944f704158401986c",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "14df8966344b9ea6da38b89d43132729439bb27c",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "14eba71db8839c35cbf10797cc1330f1f3748770",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "1916773fb355ed7068fe06c970e089e38da80165",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "1d86a717efd9bc2ae38dc601f4702399bca50edd",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "1d95aaaabc2fed21f2199aa6dbc538e41ab8f3b5",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "1e322917a70ca8996d6a52f455b7681f30d49abf",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "219e36780dd50c1017c358235e0d84cffce57aa0",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "243dc3e1c250bb7067f02e48431ad555c5061e58",
++      "branches": [
++        "modep/save_session",
++        "origin/save_session"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "25e67aa37d4fc2b6dde26ebafb7e86616fc71a17",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "262da9053ee51f130e26b4ba01e1db3220c0bc69",
++      "branches": [
++        "modep/midi-control",
++        "origin/midi-control"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "2b8048a3daceac29aaf3dd78459647116b12ca7c",
++      "branches": [
++        "origin/optional-lv2-deactivate"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "2bd134c764564ef1b7ff9e5ef70ba037841a9608",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "2bfe4f6b50b62b5758428756a74b2bfff867319e",
++      "branches": [
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "2c4e9e7dec4c7a080c610724d4ec7d805880fb78",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "2f1be3014786f69534e1f3750f7332521dff7e1f",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "2fe8b030c152c59c712e8eb9bb2721c15a8110b1",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "307e8905c013f58626ef09754d6a6f3f6cdb836f",
++      "branches": [
++        "origin/hotfix-1.11"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "3218168681043089b3cd40a685237bb013ccd7c8",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "32b09e080a990713a0c4c1f6cfcfbb71b8d937b5",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "35984819ec696f250edc38e197d0bd0e3567f24b",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "361a2a4f58b6c14e9b1c10a6ae1f88cf3ba2d853",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "38c89bbb16ae4f59275a94cdfce3f6df3fe2ab0d",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "392ef589a6a3941451813009c29deac92602b171",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "3fa1210981a0bd7a2fe4f36ea5af87afe9e2901b",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "3fdb5d635e5145f319c29bd0cc4608ebbb5953b9",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "44c7b18ccf964ca7a8aaa5dabcca969c5242226c",
++      "branches": [
++        "modep/modep"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "456d5c2a8ce509fffbbf2ec4b5193573d5982376",
++      "branches": [
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "46f909692586c8fefa63193cbc617999a1a56871",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "474fd82ff119266ab7cce0b593fb119556accf48",
++      "branches": [
++        "origin/external-ui"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "486955fa713e7b7beda9e82411fee69dcb65fcb4",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "488ac695c6bace7f420d331651da304b6acda32d",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "4ec52263622f11ca7189ba047230d16028536dc2",
++      "branches": [
++        "modep/midi-control",
++        "origin/midi-control"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "59e6304b8c1b24b2be8b714a74d1f2d38a219e55",
++      "branches": [
++        "origin/master-dg",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "5ae41b28bb7b4b511122749726d7e7bda447a9eb",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "5d61920cd95fb915b8616ba76cdc6f08fb40fd69",
++      "branches": [
++        "origin/midi-cc-monitor"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "5dce1fadab166306f566a7ecfac4b5021b268e69",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "6044bed75ba00b8ba34faf5a58daabb1bceb34a1",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "642ed467fa32633934b9ded96d7aa5fd415c07e1",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "665ae0a2eb3d6750029a16d4e7f6f2319a896053",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "6aa546d9237bb8fc88faa990aa9646127660bad0",
++      "branches": [
++        "origin/memfd-create",
++        "origin/pablito"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "6c1cdd852608914b7d776373ef23fb4111db658b",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "6d79d4a895cc35f61686a10b4088486d328e5101",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "6fde63c1c3617fba7f5ae2e13344da13dfd1bacc",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "700866c4f1fdfc2da272c6d9c840d1d83bf63127",
++      "branches": [
++        "modep/midi-control",
++        "origin/midi-control"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "721c45386780f2435d3fda5f7a587371e4191c52",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "74578acc3583d7b0b697f9b14b4214efa5707f2e",
++      "branches": [
++        "origin/midi_event"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "74e03633027cf7b772f93bfcc92156140cdf5ceb",
++      "branches": [
++        "origin/monitor-cpu-load",
++        "origin/pablito"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "754070f94bffafb51c7f3d86df47bc04b00f1151",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "780779e713683ef5254e51266a9239456691db52",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "7dd469897d2c3f50dc35aa7b3768bd776bf68489",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "83e5da44303199700ffa27f180a60fbadfd742c1",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "849d269fbe10bc4429193bad17e08d07ab811954",
++      "branches": [
++        "origin/hotfix-1.10"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "864e92675e9faa67cdf5d6936f70449189ddd34f",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "8ad95cba8a9e44cd9fb23b8747da95fa7c02d47e",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "8cb6491b92c6c96578658071885b141ccddb381d",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "8e70439d8b94cd710f952ec64115b79ae394a4e9",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "92d2c2e2412b1a2f96ff11ac36f8ea732f59d337",
++      "branches": [
++        "modep/save_session",
++        "origin/save_session"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "92fbabf0d44b432b9a971857e939ea473ce51ee1",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "9519849121491bc7cc2bc9d96a0cec9d5606279b",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "95fb2e315cd87767ec73e8544f08cc6a6fe9f478",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "995da29e0bca51301ffefb0c9233c0b28c2019f1",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "9c97d8fbc8b70ca964ea33a58ead8c53f4f8f503",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "9d4dc138cf417dba68573d50b908f7b57fe03cb4",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "9dc9eb95afaafbfbf5585e20ef46509e92f07a39",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "a05c8dc2e3209d414b0511f95cc986e5ddf0a99e",
++      "branches": [
++        "origin/midi-cc-monitor"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "a0bf7d320e24626a0f00355894d61a247857e605",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "a5d91241c91017e1721ce04a395184596c430837",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "a5e18b2e571a489b24aa959b168c660e7b80d7cb",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "ae099eab4add80208a5c787863fd92517a3eda6d",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "aee8aba101c4c6581565ff04d6e6cb216d310f6e",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "af11901d9d3ab02631b463853bd16d7881c4e7ca",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "aff7a463c472c11e22615ec378dbc368b37db80b",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "b0c25e70f98d7486f425b363f5839b9036138b9f",
++      "branches": [
++        "origin/hotfix-1.13"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "b2e1f40ba4e165c834bbba69807f5fde35e0b3b6",
++      "branches": [
++        "origin/hotfix-1.9"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "b6ecd765912cc91b971cb79b14c145dbc7a85dbb",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "b9dc27c9d3d65f91a61b3524ff1abdf800c48f3c",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "bb63541d53d9654e86b07d54030c4a2a7ee41309",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "bbd0880a33f0f6d86f284ce8aa63bbe4ef5cbb00",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "bc770a2f33e5595f0456fd7e838bdc96a6cdfa4e",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "bc9a83e0d19a08a32731003fd884fe6a30729c2f",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "bcada105d1daa3303d22725e6da634b60b304909",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "bd0061e2b9963d0839fbce92ccdcabf1c89ebb79",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "bd00c4d7ae604d75bf8dc89cea4b8e4b485ce930",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c0154d422901b15d2a065338e9cfb3e7c7cc3d88",
++      "branches": [
++        "modep/midi-control",
++        "origin/midi-control"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c06b18cba36343db58c78d0635aa3911cd912b8c",
++      "branches": [
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c12a00ba4d29bedcae4165e0ff18e79f809c1036",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c1345f236fb9213eaacc443ef818080affcc1a89",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c1edf9f88b5fffe761cb793b293f4731002946ad",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "c40de249ed4d68156f49a17fa03647c7cf4d3f1b",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c435cc3d52320b848f4a6c80925b97c81e41cf7e",
++      "branches": [
++        "origin/hotfix-1.11"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c74f24cb71fbb2f4ae2823d3bdf98ee7a24b86ea",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "c902652163f57e8e129b8ef44dd3099c0f8f8739",
++      "branches": [
++        "origin/monitor-cpu-load",
++        "origin/pablito"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "ca20e98355436d5894d3e48693a8a2660b0dd768",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "cd8fe415ce28f2ac8a061ddd18fb6f2fddc7c740",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "d157ce0606d3bf87f78024f060e4fc08d19f034c",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "d16c79a482eb4db6eb73d41c6551f19456bf3c31",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "d6789aaff0c8eb0a9e0ee3f48c8a6bc41ba4af0b",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "d84a8a29a89abe4d319889e9c07889ca1c7161f2",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "d8fb52046bc0d65bbbc4a42fbac76648e193d292",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "ded26631cd8dd6fe3a45f249222b4ee8156358bd",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "e2bda738e2d6c14616b82f6452b8235c709ffd05",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "e451218dd133c581ac630581033ae6b533b0558d",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "e50c17d6070c302818f980561d136324f52cdd3a",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "e836641bd21f8dc2a50f04016547c4bf611982a7",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "eb119e641509a9972a25c89b2e3f45a27fb0f74a",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "eed327f7759356313fca79d0ee92d69ee06fabc6",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "f68cf7fa115c4fe9934a2381fb5da636312d83dd",
++      "branches": [
++        "origin/hotfix-1.10"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "f6bf5fcbc9b7e80aedf6f55ddf8db977877696bb",
++      "branches": [
++        "modep/temposync"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "f7c5f501f34fc7c4684f8cc0944d9e386add8fc1",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "deferred_or_superseded"
++    },
++    {
++      "revision": "f923f1437927b86ec638295d1de38f9d3926cc07",
++      "branches": [
++        "origin/hotfix-1.13"
++      ],
++      "decision": "selected"
++    },
++    {
++      "revision": "fae0c49ae0ec634e806aa228ea9511443900cf39",
++      "branches": [
++        "origin/master-dg",
++        "origin/memfd-create",
++        "origin/midi-cc-monitor",
++        "origin/monitor-cpu-load",
++        "origin/optional-lv2-deactivate",
++        "origin/pablito",
++        "origin/split-lilv"
++      ],
++      "decision": "selected"
++    }
++  ],
++  "local_changes": [
++    "NUL-delimited TCP framing preserves incomplete commands across reads.",
++    "Disconnected writes return errors without infinite retry loops or SIGPIPE on Linux.",
++    "LF checkout attributes keep build scripts usable from Windows checkouts.",
++    "Isolated JACK/LV2/audio/MIDI/socket/worker integration checks."
++  ],
++  "validation": {
++    "environment": "WSL2 Ubuntu 24.04 x86_64; GCC 13; JACK 1.9.21; Lilv 0.24.22; LV2 1.18.10",
++    "commands": [
++      "make -j2",
++      "make integration-test"
++    ],
++    "hardware_validation": "Raspberry Pi ARM64 compilation and physical Pisound latency/MIDI testing remain to be run on the target.",
++    "optional_dependencies": "Ableton Link requires Hylia; aggregated MIDI requires mod-midi-merger; Control Chain requires cc_client."
++  }
++}
+diff --git a/docs/rpi4-pisound-integration.md b/docs/rpi4-pisound-integration.md
+new file mode 100644
+index 0000000..c931626
+--- /dev/null
++++ b/docs/rpi4-pisound-integration.md
+@@ -0,0 +1,85 @@
++# Raspberry Pi 4 and Pisound integration
++
++This branch starts from MOD Audio `master` at
++`f14a230bf48b42035406d2b2dca038efa4d2abca`, keeps its MOD UI command protocol,
++and selects ten portable fixes from the newer MOD development/hotfix branches.
++The target is Raspberry Pi 4 with Pisound on 64-bit Patchbox OS.
++
++The complete audit of every fetched MOD Audio and Blokas MODEP branch, including
++full revision pins and selected upstream commits, is in
++[integration-manifest.json](integration-manifest.json). Regenerate it with
++`python3 utils/audit_branches.py --output docs/integration-manifest.json` after
++reviewing changes to the remote branches.
++
++## Selected changes
++
++- Four upstream socket fixes handle multiple commands per read, padding, exact
++  buffer boundaries and TCP_NODELAY. The local framing correction additionally
++  retains incomplete NUL-terminated commands across arbitrary TCP reads and
++  dispatches complete commands before a partial trailing command.
++- Three worker fixes protect incomplete ringbuffer messages, lock response
++  memory, and postpone incomplete worker responses to the next audio cycle.
++- The supported tempo range now reaches 300 BPM, matching the Grid transport UI.
++- The newer Lilv object-index option is used only when the installed headers
++  expose it, preserving compatibility with distribution Lilv releases.
++- The stable buffer-size hotfix deactivates/reactivates LV2 instances around
++  options changes, preserving the plugin lifecycle during JACK buffer changes.
++- Failed socket writes return an error. Linux writes use MSG_NOSIGNAL so a
++  disconnected UI cannot terminate the host with SIGPIPE or trigger an endless
++  retry loop. Checkout attributes preserve LF endings for build scripts.
++
++MODEP `master`, `control-chain`, `cpu_load`, `ext_state`, `modep_2018.08` and
++`temposync2` are ancestors of the selected MOD master. MODEP `modep` adds only
++the removal of GitHub Actions. Its older MIDI, tempo/Link and session-save
++prototypes have been superseded by the current MIDI/transport/state commands.
++The old JACK pretty-name prototype is unnecessary for the Grid plugin names.
++
++The newer `master-dg`, `pablito` and related branches include coupled preload,
++parallel command, monitoring, HMI and rk358x hardware changes. Only the portable
++fixes listed above are selected here. Dwarf CPU pinning, Pablito playback-port
++assumptions, prototype socket MIDI injection, memfd binary loading and the
++ongoing Lilv refactor need separate validation before use on Raspberry Pi.
++
++## Building on the target
++
++Use the native compiler on the 64-bit Raspberry Pi OS. Keep generic platform
++defaults; MOD-device, Dwarf and rk358x build definitions do not describe Pisound.
++
++```sh
++sudo apt-get install --no-install-recommends build-essential pkg-config \
++  libjack-jackd2-dev liblilv-dev libreadline-dev lv2-dev
++make -j2
++```
++
++The build produces `mod-host`, `mod-host.so`, `fake-input.so` and
++`mod-monitor.so`. Build and stage these for the existing MODEP service and JACK
++setup; use the target device's configured service user, paths and ports. The
++default command/feedback ports are 5555/5556 when both are explicitly enabled.
++Replacing a system binary or JACK internal client requires a service restart;
++the build itself does not alter the installed services.
++
++Ableton Link requires Hylia to be available through pkg-config. Aggregated MIDI
++requires the installed `mod-midi-merger` JACK client, and Control Chain requires
++`cc_client`. These are optional compile/runtime dependencies, not capabilities
++supplied by merging an old MODEP branch. Normal Pisound JACK MIDI routing and
++MIDI CC mapping work without Control Chain or Hylia.
++
++## Validation
++
++```sh
++sudo apt-get install --no-install-recommends jackd2 lv2-examples python3
++make integration-test
++```
++
++The integration suite starts an isolated named JACK dummy server, launches the
++real host on unused socket ports, and uses the LV2 example plugins. It checks
++TCP fragmentation/coalescing, empty frames, exact 1024/2048-byte commands, larger
++messages, partial-command reconnects, disconnected writes, worker response
++framing, real audio samples, live JACK buffer changes, MIDI CC input/feedback,
++transport, and LV2 preset/patch/state save and restore. It terminates its own
++processes and leaves the device's normal JACK server alone.
++
++These checks passed on WSL2 Ubuntu 24.04 x86_64 with GCC 13, JACK 1.9.21,
++Lilv 0.24.22 and LV2 1.18.10. ARM64 compilation and physical Pisound audio/MIDI
++latency testing still require the target device. Optional Hylia/Control Chain
++code paths were not exercised by this test environment.
+diff --git a/src/socket.c b/src/socket.c
+index 906afa5..5bfae01 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -26,6 +26,8 @@
+ #include <unistd.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <errno.h>
++#include <limits.h>
+ 
+ #ifdef _WIN32
+ #include <winsock2.h>
+@@ -40,7 +42,6 @@ typedef int SOCKET;
+ 
+ #include "socket.h"
+ #include "effects.h"
+-#include "mod-memset.h"
+ 
+ 
+ /*
+@@ -162,9 +163,9 @@ int socket_start(int socket_port, int feedback_port, int buffer_size)
+         setsockopt(g_fbserverfd, SOL_SOCKET, SO_REUSEPORT, &value, sizeof(value));
+ 
+     /* Set TCP_NODELAY */
+-    setsockopt(g_serverfd, SOL_TCP, TCP_NODELAY, &value, sizeof(value));
++    setsockopt(g_serverfd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value));
+     if (feedback_port != 0)
+-        setsockopt(g_fbserverfd, SOL_TCP, TCP_NODELAY, &value, sizeof(value));
++        setsockopt(g_fbserverfd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value));
+ 
+     /* Increase socket size */
+     value = 131071;
+@@ -265,10 +266,19 @@ int socket_send(int destination, const char *buffer, int size)
+ 
+     while (size > 0)
+     {
++#ifdef MSG_NOSIGNAL
++        ret = send(destination, buffer, size, MSG_NOSIGNAL);
++#else
+         ret = send(destination, buffer, size, 0);
+-        if (ret < 0)
++#endif
++#ifndef _WIN32
++        if (ret < 0 && errno == EINTR)
++            continue;
++#endif
++        if (ret <= 0)
+         {
+             perror("send error");
++            return -1;
+         }
+         size -= ret;
+         buffer += ret;
+@@ -291,7 +301,8 @@ void socket_run(int exit_on_failure)
+     SOCKET clientfd, fbclientfd;
+     int count;
+     char *buffer;
+-    char *msgbuffer;
++    size_t buffered = 0;
++    size_t capacity = g_buffer_size;
+     msg_t msg;
+ 
+     /* Allocates memory to receive buffer */
+@@ -343,94 +354,57 @@ void socket_run(int exit_on_failure)
+ 
+     while (g_serverfd != INVALID_SOCKET)
+     {
+-        mod_memset(buffer, 0, g_buffer_size);
+-        count = recv(clientfd, buffer, g_buffer_size, 0);
+-
+-        if (count > 0) /* Data received */
++        if (buffered == capacity)
+         {
+-            if (count == g_buffer_size && buffer[count - 1] != '\0')
+-            {
+-                /* if message is bigger than our buffer, dynamically allocate more data until we receive it all */
+-                int new_count, new_buffer_size;
++            if (capacity > INT_MAX - (size_t)g_buffer_size)
++                break;
+ 
+-                msgbuffer = NULL;
+-                new_count = g_buffer_size;
+-                new_buffer_size = g_buffer_size;
++            char *const resized = realloc(buffer, capacity + g_buffer_size);
++            if (resized == NULL)
++                break;
+ 
+-                while (new_count == g_buffer_size)
+-                {
+-                    new_buffer_size += g_buffer_size;
+-
+-                    if (msgbuffer == NULL)
+-                    {
+-                        msgbuffer = malloc(new_buffer_size);
+-                        memcpy(msgbuffer, buffer, g_buffer_size);
+-                    }
+-                    else
+-                    {
+-                        msgbuffer = realloc(msgbuffer, new_buffer_size);
+-                    }
+-
+-                    mod_memset(msgbuffer + count, 0, g_buffer_size);
+-                    new_count = recv(clientfd, msgbuffer + count, g_buffer_size, 0);
+-
+-                    if (new_count > 0) /* Data received */
+-                    {
+-                        count += new_count;
+-
+-                        if (msgbuffer[count - 1] == '\0')
+-                            break;
+-                    }
+-                    else if (new_count < 0) /* Error */
+-                    {
+-                        if (! exit_on_failure)
+-                            goto outside_loop;
+-
+-                        perror("read error");
+-                        exit(EXIT_FAILURE);
+-                    }
+-                    else if (new_count == 0) /* Client disconnected */
+-                    {
+-                        goto outside_loop;
+-                    }
+-                }
+-            }
+-            else
+-            {
+-                msgbuffer = buffer;
+-            }
++            buffer = resized;
++            capacity += g_buffer_size;
++        }
+ 
+-            if (g_receive_cb)
+-            {
+-                // ignore leftover null bytes
+-                while (count > 1 && msgbuffer[count - 1] == '\0')
+-                    --count;
++        const size_t available = capacity - buffered;
++        const int receive_size = available < (size_t)g_buffer_size ? (int)available : g_buffer_size;
++        count = recv(clientfd, buffer + buffered, receive_size, 0);
++
++#ifndef _WIN32
++        if (count < 0 && errno == EINTR)
++            continue;
++#endif
+ 
+-                // make sure to keep 1 null byte at the end of the string
+-                ++count;
++        if (count > 0) /* Data received */
++        {
++            buffered += count;
++            size_t consumed = 0;
+ 
+-                msg.data = msgbuffer;
++            /* TCP packets do not define protocol boundaries. Keep incomplete
++               commands until their NUL terminator arrives, and dispatch every
++               complete command even when the next one is still incomplete. */
++            while (consumed < buffered)
++            {
++                char *const frame = buffer + consumed;
++                char *const end = memchr(frame, '\0', buffered - consumed);
++                if (end == NULL)
++                    break;
+ 
+-                while (count > 0)
++                const size_t frame_size = end - frame + 1;
++                if (frame_size > 1 && g_receive_cb)
+                 {
+-                    if (*msg.data == '\0')
+-                    {
+-                        --count;
+-                        ++msg.data;
+-                        continue;
+-                    }
+-
+                     msg.sender_id = clientfd;
+-                    msg.data_size = strlen(msg.data) + 1;
++                    msg.data = frame;
++                    msg.data_size = frame_size;
+                     g_receive_cb(&msg);
+-
+-                    count -= msg.data_size;
+-                    msg.data += msg.data_size;
+                 }
++                consumed += frame_size;
+             }
+ 
+-            if (msgbuffer != buffer)
+-                free(msgbuffer);
++            buffered -= consumed;
++            if (buffered != 0 && consumed != 0)
++                memmove(buffer, buffer + consumed, buffered);
+ 
+             effects_idle_external_uis();
+         }
+@@ -448,7 +422,6 @@ void socket_run(int exit_on_failure)
+         }
+     }
+ 
+-outside_loop:
+     if (fbclientfd != INVALID_SOCKET)
+     {
+         g_fbclientfd = INVALID_SOCKET;
+diff --git a/tests/integration_test.py b/tests/integration_test.py
+new file mode 100644
+index 0000000..05b13e6
+--- /dev/null
++++ b/tests/integration_test.py
+@@ -0,0 +1,254 @@
++#!/usr/bin/env python3
++"""Exercise the real host with an isolated JACK dummy server and LV2 examples."""
++import math
++import os
++from pathlib import Path
++import shlex
++import socket
++import subprocess
++import tempfile
++import time
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++class Frames:
++    def __init__(self, connection):
++        self.connection = connection
++        self.pending = b""
++        connection.settimeout(3)
++
++    def read(self):
++        while b"\0" not in self.pending:
++            chunk = self.connection.recv(65536)
++            assert chunk, "Connection closed before a complete response"
++            self.pending += chunk
++        frame, self.pending = self.pending.split(b"\0", 1)
++        return frame.decode()
++
++    def command(self, command, expected="resp 0"):
++        self.connection.sendall(command.encode() + b"\0")
++        response = self.read()
++        assert response == expected, (command, response, expected)
++        return response
++
++    def expect_pending(self):
++        assert not self.pending, self.pending
++        self.connection.settimeout(0.1)
++        try:
++            response = self.connection.recv(1024)
++            raise AssertionError(f"Incomplete command produced a response: {response!r}")
++        except socket.timeout:
++            pass
++        finally:
++            self.connection.settimeout(3)
++
++
++def free_port():
++    with socket.socket() as reservation:
++        reservation.bind(("127.0.0.1", 0))
++        return reservation.getsockname()[1]
++
++
++def compile_helpers(directory):
++    flags = shlex.split(subprocess.check_output(
++        ["pkg-config", "--cflags", "--libs", "jack", "lilv-0"], text=True))
++    probe = directory / "jack-probe"
++    worker = directory / "worker-response-test"
++    sender = directory / "socket-send-test"
++    subprocess.run(["cc", "-std=gnu99", "-Wall", "-Wextra", "-Werror",
++                    str(ROOT / "tests/jack_probe.c"), "-o", str(probe), *flags, "-lm"], check=True)
++    subprocess.run(["cc", "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-pthread",
++                    str(ROOT / "tests/worker_response_test.c"), str(ROOT / "src/worker.c"),
++                    "-o", str(worker), *flags], check=True)
++    subprocess.run([str(worker)], check=True, timeout=3)
++    print("PASS worker response framing and incomplete-response deferral")
++    subprocess.run(["cc", "-std=gnu99", "-Wall", "-Wextra", "-Werror",
++                    str(ROOT / "tests/socket_send_test.c"), str(ROOT / "src/socket.c"),
++                    "-o", str(sender), *flags], check=True)
++    subprocess.run([str(sender)], check=True, timeout=3, capture_output=True)
++    print("PASS disconnected socket write returns an error without blocking or SIGPIPE")
++    return probe
++
++
++def wait_for_jack(environment, process):
++    for _ in range(100):
++        assert process.poll() is None, "JACK exited during startup"
++        result = subprocess.run(["jack_lsp"], env=environment, capture_output=True)
++        if result.returncode == 0:
++            return
++        time.sleep(0.05)
++    raise AssertionError("JACK did not start")
++
++
++def connect_host(port, process):
++    for _ in range(100):
++        assert process.poll() is None, "mod-host exited during startup"
++        try:
++            return socket.create_connection(("127.0.0.1", port), timeout=0.1)
++        except OSError:
++            time.sleep(0.05)
++    raise AssertionError("mod-host did not accept a connection")
++
++
++def check_protocol(frames):
++    frames.command("add http://lv2plug.in/plugins/eg-amp 0")
++    frames.command("param_get 0 gain", "resp 0 0.0000")
++    frames.connection.sendall(b"\0\0param_set 0 gain 3\0param_get 0 gain\0\0")
++    assert frames.read() == "resp 0"
++    assert frames.read() == "resp 0 3.0000"
++
++    frames.connection.sendall(b"param_se")
++    frames.expect_pending()
++    frames.connection.sendall(b"t 0 gain 6\0")
++    assert frames.read() == "resp 0"
++
++    frames.connection.sendall(b"param_get 0 gain\0param_se")
++    assert frames.read() == "resp 0 6.0000"
++    frames.expect_pending()
++    frames.connection.sendall(b"t 0 gain 0\0")
++    assert frames.read() == "resp 0"
++
++    for size in (1024, 2048, 8193):
++        command = b"param_get 0 gain"
++        frames.connection.sendall(command + b" " * (size - len(command) - 1) + b"\0")
++        assert frames.read() == "resp 0 0.0000", size
++    frames.connection.sendall(b"\0" * 2048 + b"param_get 0 gain\0")
++    assert frames.read() == "resp 0 0.0000"
++
++    # Exercise many complete frames split at arbitrary TCP packet boundaries.
++    payload = b"param_get 0 gain\0" * 31
++    for start in range(0, len(payload), 13):
++        frames.connection.sendall(payload[start:start + 13])
++    assert [frames.read() for _ in range(31)] == ["resp 0 0.0000"] * 31
++    print("PASS coalesced/fragmented/empty frames and exact 1024/2048-byte commands")
++
++
++def check_plugins(frames, feedback, probe, directory, environment):
++    frames.command("connect system:capture_1 effect_0:in")
++    frames.command("disconnect system:capture_1 effect_0:in")
++    measured = float(subprocess.check_output([str(probe)], env=environment, text=True, timeout=10))
++    assert math.isclose(measured, 0.125, abs_tol=0.001), measured
++    print("PASS real JACK routing and LV2 audio processing")
++    for buffer_size in (128, 512, 256):
++        subprocess.run(["jack_bufsize", str(buffer_size)], env=environment, check=True, capture_output=True, timeout=5)
++        frames.command("param_get 0 gain", "resp 0 0.0000")
++    measured = float(subprocess.check_output([str(probe)], env=environment, text=True, timeout=10))
++    assert math.isclose(measured, 0.125, abs_tol=0.001), measured
++    print("PASS live JACK buffer changes preserve plugin/audio processing")
++
++    frames.command("param_set 0 gain 5")
++    preset = directory / "test-presets.lv2"
++    frames.command(f'preset_save 0 "Integration Gain" "{preset}" gain.ttl')
++    assert (preset / "gain.ttl").is_file()
++    frames.command(f'bundle_add "{preset}/"')
++    frames.command("param_set 0 gain 0")
++    frames.command(f'preset_load 0 "{(preset / "gain.ttl").as_uri()}"')
++    frames.command("param_get 0 gain", "resp 0 5.0000")
++
++    frames.command("add http://lv2plug.in/plugins/eg-params 1", "resp 1")
++    property_uri = "http://lv2plug.in/plugins/eg-params#int"
++    frames.command(f"patch_set 1 {property_uri} 42")
++    time.sleep(0.1)
++    state = directory / "pedalboard-state"
++    frames.command(f'state_save "{state}"')
++    state_file = state / "effect-1/effect.ttl"
++    assert state_file.is_file()
++    assert "42" in state_file.read_text()
++    frames.command(f"patch_set 1 {property_uri} 7")
++    time.sleep(0.1)
++    frames.command(f'state_load "{state}"')
++    check_state = directory / "restored-state"
++    frames.command(f'state_save "{check_state}"')
++    assert "42" in (check_state / "effect-1/effect.ttl").read_text()
++    print("PASS LV2 preset and patch/state save/restore")
++
++    frames.command("midi_map 0 gain 0 7 -12 12", "resp 1")
++    subprocess.run([str(probe), "midi"], env=environment, check=True, capture_output=True, timeout=10)
++    frames.connection.sendall(b"param_get 0 gain\0")
++    response = frames.read()
++    expected = -12 + 24 * 64 / 127
++    assert response.startswith("resp 0 "), response
++    assert math.isclose(float(response.split()[2]), expected, abs_tol=0.01), response
++
++    events = Frames(feedback)
++    saw_midi = False
++    for _ in range(50):
++        event = events.read()
++        saw_midi |= event.startswith("param_set 0 gain ")
++        if event == "data_finish":
++            frames.command("output_data_ready")
++            if saw_midi:
++                break
++    assert saw_midi, "Missing MIDI parameter update on the feedback socket"
++    frames.command("midi_unmap 0 gain", "resp 1")
++    frames.command("set_bpm 300")
++    frames.command("set_bpm 301", "resp -207")
++    frames.command("transport 1 4 120")
++    frames.command('transport_sync "midi"')
++    frames.command('transport_sync "none"')
++    frames.command("transport 0 4 120")
++    print("PASS real MIDI CC mapping, feedback protocol and transport commands")
++
++
++def main():
++    assert (ROOT / "mod-host").is_file(), "Build mod-host with make first"
++    environment = os.environ.copy()
++    environment["JACK_DEFAULT_SERVER"] = f"modhost-integration-{os.getpid()}"
++    environment["LV2_PATH"] = os.environ.get("LV2_PATH", "/usr/lib/lv2")
++    command_socket = feedback_socket = None
++    host = jack = None
++    with tempfile.TemporaryDirectory(prefix="modhost-integration-") as temp:
++        directory = Path(temp)
++        probe = compile_helpers(directory)
++        with (directory / "jack.log").open("w+") as jack_log, (directory / "host.log").open("w+") as host_log:
++            try:
++                jack = subprocess.Popen(["jackd", "--no-realtime", "--name", environment["JACK_DEFAULT_SERVER"],
++                                         "-d", "dummy", "-r", "48000", "-p", "256"],
++                                        env=environment, stdout=jack_log, stderr=subprocess.STDOUT)
++                wait_for_jack(environment, jack)
++                command_port, feedback_port = free_port(), free_port()
++                while command_port == feedback_port:
++                    feedback_port = free_port()
++                host = subprocess.Popen([str(ROOT / "mod-host"), "-n", "-p", str(command_port), "-f", str(feedback_port)],
++                                        cwd=ROOT, env=environment, stdout=host_log, stderr=subprocess.STDOUT)
++                command_socket = connect_host(command_port, host)
++                feedback_socket = connect_host(feedback_port, host)
++                frames = Frames(command_socket)
++                check_protocol(frames)
++                check_plugins(frames, feedback_socket, probe, directory, environment)
++                frames.command("remove -1")
++                command_socket.sendall(b"param_se")
++                command_socket.close()
++                feedback_socket.close()
++                command_socket = connect_host(command_port, host)
++                feedback_socket = connect_host(feedback_port, host)
++                reconnected = Frames(command_socket)
++                command_socket.sendall(b"cpu_load\0")
++                response = reconnected.read()
++                assert response.startswith("resp 0 ") and float(response.split()[2]) >= 0, response
++                assert host.poll() is None and jack.poll() is None
++                print("PASS reconnect discards an unfinished command")
++                print("All mod-host integration checks passed.")
++            except Exception:
++                for name, log in (("JACK", jack_log), ("mod-host", host_log)):
++                    log.flush()
++                    log.seek(0)
++                    print(f"{name} log:\n{log.read()}")
++                raise
++            finally:
++                for connection in (command_socket, feedback_socket):
++                    if connection is not None:
++                        connection.close()
++                for process in (host, jack):
++                    if process is not None and process.poll() is None:
++                        process.terminate()
++                        try:
++                            process.wait(timeout=5)
++                        except subprocess.TimeoutExpired:
++                            process.kill()
++                            process.wait(timeout=5)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/jack_probe.c b/tests/jack_probe.c
+new file mode 100644
+index 0000000..bf04b15
+--- /dev/null
++++ b/tests/jack_probe.c
+@@ -0,0 +1,65 @@
++/* A real JACK audio/MIDI client used by integration_test.py. */
++#include <jack/jack.h>
++#include <jack/midiport.h>
++#include <math.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++static jack_port_t *audio_out, *audio_in, *midi_out;
++static volatile unsigned int cycles;
++static double sum;
++static unsigned int samples;
++static int send_midi;
++
++static int process(jack_nframes_t nframes, void *arg)
++{
++    (void)arg;
++    float *out = jack_port_get_buffer(audio_out, nframes);
++    const float *in = jack_port_get_buffer(audio_in, nframes);
++    void *midi = jack_port_get_buffer(midi_out, nframes);
++    jack_midi_clear_buffer(midi);
++    for (jack_nframes_t i = 0; i < nframes; ++i)
++        out[i] = 0.125f;
++    if (send_midi && cycles == 30)
++    {
++        const unsigned char event[] = {0xb0, 7, 64};
++        jack_midi_event_write(midi, 0, event, sizeof(event));
++    }
++    if (cycles >= 100 && cycles < 140)
++    {
++        for (jack_nframes_t i = 0; i < nframes; ++i)
++            sum += fabs(in[i]);
++        samples += nframes;
++    }
++    ++cycles;
++    return 0;
++}
++
++int main(int argc, char **argv)
++{
++    send_midi = argc > 1;
++    (void)argv;
++    jack_status_t status;
++    jack_client_t *client = jack_client_open("integration-probe", JackNoStartServer, &status);
++    if (!client)
++        return 1;
++    audio_out = jack_port_register(client, "out", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
++    audio_in = jack_port_register(client, "in", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
++    midi_out = jack_port_register(client, "midi", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
++    if (!audio_out || !audio_in || !midi_out || jack_set_process_callback(client, process, NULL) || jack_activate(client))
++        return 2;
++    if (jack_connect(client, jack_port_name(audio_out), "effect_0:in") ||
++        jack_connect(client, "effect_0:out", jack_port_name(audio_in)))
++        return 3;
++    if (send_midi && jack_connect(client, jack_port_name(midi_out), "mod-host:midi_in"))
++        return 4;
++    for (unsigned int i = 0; cycles < 160 && i < 500; ++i)
++        usleep(10000);
++    jack_deactivate(client);
++    jack_client_close(client);
++    if (cycles < 160 || samples == 0)
++        return 5;
++    printf("%.9f\n", sum / samples);
++    return 0;
++}
+diff --git a/tests/socket_send_test.c b/tests/socket_send_test.c
+new file mode 100644
+index 0000000..53a8116
+--- /dev/null
++++ b/tests/socket_send_test.c
+@@ -0,0 +1,18 @@
++/* A disconnected peer must return an error without SIGPIPE or retry loops. */
++#include "../src/socket.h"
++#include <assert.h>
++#include <sys/socket.h>
++#include <unistd.h>
++
++void effects_idle_external_uis(void);
++void effects_idle_external_uis(void) {}
++
++int main(void)
++{
++    int peers[2];
++    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, peers) == 0);
++    close(peers[1]);
++    assert(socket_send(peers[0], "resp 0", 7) == -1);
++    close(peers[0]);
++    return 0;
++}
+diff --git a/tests/worker_response_test.c b/tests/worker_response_test.c
+new file mode 100644
+index 0000000..3a23180
+--- /dev/null
++++ b/tests/worker_response_test.c
+@@ -0,0 +1,46 @@
++/* Incomplete responses must remain queued without blocking the audio thread. */
++#include "../src/worker.h"
++#include <assert.h>
++#include <stdlib.h>
++#include <string.h>
++
++static unsigned int calls;
++static LV2_Worker_Status response(LV2_Handle handle, uint32_t size, const void *data)
++{
++    (void)handle;
++    assert(size == 5);
++    assert(memcmp(data, "hello", size) == 0);
++    ++calls;
++    return LV2_WORKER_SUCCESS;
++}
++
++int main(void)
++{
++    const LV2_Worker_Interface iface = {NULL, response, NULL};
++    LilvInstance instance;
++    memset(&instance, 0, sizeof(instance));
++    worker_t worker;
++    memset(&worker, 0, sizeof(worker));
++    worker.iface = &iface;
++    worker.instance = &instance;
++    worker.responses = jack_ringbuffer_create(128);
++    worker.response = malloc(128);
++    assert(worker.responses && worker.response);
++    const uint32_t size = 5;
++
++    jack_ringbuffer_write(worker.responses, (const char *)&size, 2);
++    worker_emit_responses(&worker);
++    assert(calls == 0 && jack_ringbuffer_read_space(worker.responses) == 2);
++
++    jack_ringbuffer_write(worker.responses, (const char *)&size + 2, sizeof(size) - 2);
++    jack_ringbuffer_write(worker.responses, "he", 2);
++    worker_emit_responses(&worker);
++    assert(calls == 0 && jack_ringbuffer_read_space(worker.responses) == sizeof(size) + 2);
++
++    jack_ringbuffer_write(worker.responses, "llo", 3);
++    worker_emit_responses(&worker);
++    assert(calls == 1 && jack_ringbuffer_read_space(worker.responses) == 0);
++    jack_ringbuffer_free(worker.responses);
++    free(worker.response);
++    return 0;
++}
+diff --git a/utils/audit_branches.py b/utils/audit_branches.py
+new file mode 100644
+index 0000000..b5adb26
+--- /dev/null
++++ b/utils/audit_branches.py
+@@ -0,0 +1,93 @@
++#!/usr/bin/env python3
++"""Record all fetched MOD/MODEP branch pins and their integration decisions."""
++import argparse
++import json
++from pathlib import Path
++import subprocess
++
++ROOT = Path(__file__).resolve().parents[1]
++BASE = "f14a230bf48b42035406d2b2dca038efa4d2abca"
++
++
++def git(*arguments):
++    return subprocess.check_output(["git", *arguments], cwd=ROOT, text=True).strip()
++
++
++def decision(branch, unique):
++    if unique == 0:
++        return "The branch is already an ancestor of the selected MOD master."
++    name = branch.split("/", 1)[1]
++    if name == "modep":
++        return "The only unique commit removes GitHub Actions; it adds no runtime capability."
++    if name == "jack_metadata":
++        return "Legacy audio-port pretty-name prototype; the current host already handles JACK metadata and Grid owns display names."
++    if name == "midi-control":
++        return "Legacy MIDI-control prototype superseded by current MIDI learn/map/unmap and property handling."
++    if name == "temposync":
++        return "Legacy embedded Link/ASIO implementation superseded by current transport/MIDI sync and optional Hylia integration."
++    if name == "save_session":
++        return "Legacy session-saving prototype superseded by MOD UI pedalboards and current LV2 state/preset commands."
++    if name == "dwarf-pin-core0":
++        return "Dwarf-specific CPU affinity is not appropriate for Raspberry Pi 4/Pisound."
++    if name == "external-ui":
++        return "Initial external-UI prototype; current master already has external-UI support and Grid uses browser plugin skins."
++    if name == "midi_event":
++        return "Prototype socket MIDI injection is unnecessary for JACK/Pisound MIDI; its parsing/error handling needs further work."
++    if name.startswith("hotfix-"):
++        return "Stable buffer-change lifecycle fix selected from hotfix-1.13; other fixes are equivalent/superseded or target extra MOD playback ports and old Control Chain APIs."
++    return "Portable socket, worker, BPM and Lilv fixes selected individually; remaining coupled preload/multi-command/monitoring and rk358x/Pablito changes deferred."
++
++
++def audit():
++    selected = []
++    for revision in git("rev-list", "--reverse", f"{BASE}..HEAD").splitlines():
++        message = git("show", "-s", "--format=%B", revision)
++        marker = "(cherry picked from commit "
++        if marker in message:
++            upstream = message.split(marker, 1)[1].split(")", 1)[0]
++            selected.append({"upstream_revision": upstream, "local_revision": revision,
++                             "subject": message.splitlines()[0]})
++
++    branches = []
++    candidates = {}
++    for line in git("for-each-ref", "--format=%(refname:short)\t%(objectname)\t%(symref)", "refs/remotes").splitlines():
++        fields = line.split("\t")
++        if len(fields) > 2 and fields[2]:
++            continue
++        branch, revision = fields[:2]
++        behind, ahead = map(int, git("rev-list", "--left-right", "--count", f"{BASE}...{branch}").split())
++        patches = git("log", "--cherry-pick", "--right-only", "--no-merges", "--format=%H", f"{BASE}...{branch}").splitlines()
++        branches.append({"branch": branch, "revision": revision, "commits_behind_base": behind,
++                         "commits_ahead_of_base": ahead, "patch_unique_commit_count": len(patches),
++                         "decision": decision(branch, ahead)})
++        for patch in patches:
++            candidates.setdefault(patch, []).append(branch)
++
++    selected_revisions = {entry["upstream_revision"] for entry in selected}
++    return {"audit_date": "2026-10-03", "target": "Raspberry Pi 4 / Pisound / Patchbox OS 64-bit",
++            "integration_branch": "rpi4-pisound-integration", "base_revision": BASE,
++            "remotes": {"origin": git("remote", "get-url", "origin"), "modep": git("remote", "get-url", "modep")},
++            "branches": branches, "selected_upstream_commits": selected,
++            "candidate_commits": [{"revision": revision, "branches": refs,
++                                   "decision": "selected" if revision in selected_revisions else "deferred_or_superseded"}
++                                  for revision, refs in sorted(candidates.items())],
++            "local_changes": ["NUL-delimited TCP framing preserves incomplete commands across reads.",
++                              "Disconnected writes return errors without infinite retry loops or SIGPIPE on Linux.",
++                              "LF checkout attributes keep build scripts usable from Windows checkouts.",
++                              "Isolated JACK/LV2/audio/MIDI/socket/worker integration checks."],
++            "validation": {"environment": "WSL2 Ubuntu 24.04 x86_64; GCC 13; JACK 1.9.21; Lilv 0.24.22; LV2 1.18.10",
++                           "commands": ["make -j2", "make integration-test"],
++                           "hardware_validation": "Raspberry Pi ARM64 compilation and physical Pisound latency/MIDI testing remain to be run on the target.",
++                           "optional_dependencies": "Ableton Link requires Hylia; aggregated MIDI requires mod-midi-merger; Control Chain requires cc_client."}}
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--output", type=Path)
++    arguments = parser.parse_args()
++    document = json.dumps(audit(), indent=2) + "\n"
++    if arguments.output:
++        arguments.output.parent.mkdir(parents=True, exist_ok=True)
++        arguments.output.write_text(document, encoding="utf-8")
++    else:
++        print(document, end="")
+-- 
+2.45.1.windows.1
+

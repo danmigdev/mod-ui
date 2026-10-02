@@ -131,7 +131,7 @@ from mod.protocol import (
 )
 from mod.settings import (
     LOG, DEFAULT_PEDALBOARD, DEVICE_HOST_PORT,
-    DATA_DIR, LV2_PEDALBOARDS_DIR, LV2_PLUGIN_DIR, LV2_FACTORY_PEDALBOARDS_DIR, USER_FILES_DIR,
+    DATA_DIR, PRESETS_DIR, LV2_PEDALBOARDS_DIR, LV2_FACTORY_PEDALBOARDS_DIR, USER_FILES_DIR,
     PEDALBOARD_INSTANCE, PEDALBOARD_INSTANCE_ID, PEDALBOARD_URI, PEDALBOARD_TMP_DIR,
     TUNER_URI, TUNER_INSTANCE_ID, TUNER_INPUT_PORT, TUNER_MONITOR_PORT, HMI_TIMEOUT, MODEL_TYPE,
     UNTITLED_PEDALBOARD_NAME, DEFAULT_SNAPSHOT_NAME,
@@ -2303,6 +2303,7 @@ class Host(object):
     def reset(self, bank_id, callback):
         def host_callback(ok):
             self.msg_callback("remove :all")
+            self.msg_callback("resetConnections")
             if os.path.exists(PEDALBOARD_TMP_DIR):
                 shutil.rmtree(PEDALBOARD_TMP_DIR)
             os.makedirs(PEDALBOARD_TMP_DIR)
@@ -2922,12 +2923,12 @@ class Host(object):
         pluginData   = self.plugins[instance_id]
         plugin_uri   = pluginData['uri']
         symbolname   = symbolify(name)[:32]
-        presetbundle = os.path.expanduser("%s/%s-%s.lv2") % (LV2_PLUGIN_DIR, instance.replace("/graph/","",1), symbolname)
+        presetbundle = os.path.join(PRESETS_DIR, "%s-%s.lv2" % (instance.replace("/graph/","",1), symbolname))
 
         if os.path.exists(presetbundle):
             # if presetbundle already exists, generate a new random bundle path
             while True:
-                presetbundle = os.path.expanduser("%s/%s-%s-%i.lv2" % (LV2_PLUGIN_DIR,
+                presetbundle = os.path.expanduser("%s/%s-%s-%i.lv2" % (PRESETS_DIR,
                                                                        instance.replace("/graph/","",1),
                                                                        symbolname,
                                                                        randint(1,99999)))

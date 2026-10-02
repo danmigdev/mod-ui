@@ -47,6 +47,10 @@ $('document').ready(function() {
             ws.send("pong")
             return
         }
+        if (cmd == "resetConnections") {
+            desktop.pedalboard.pedalboard('resetConnections')
+            return
+        }
         if (cmd == "stop") {
             desktop.blockUI()
             return

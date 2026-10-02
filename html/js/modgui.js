@@ -28,6 +28,13 @@ function supportsT3K(parameter) {
     return parameter.fileTypes.some(type => type == 'nammodel' || type == 'cabsim' || type == 'ir' || type == 'aidadspmodel')
 }
 
+function getT3KIntegration() {
+    if (typeof desktop === 'undefined' || !desktop || !desktop.pedalboard ||
+        typeof desktop.pedalboard.data !== 'function') return null
+    var integration = desktop.pedalboard.data('T3KIntegration')
+    return integration && typeof integration.startSelectFlow === 'function' ? integration : null
+}
+
 function loadFileTypesList(parameter, dummy, callback) {
     var files = []
 
@@ -44,7 +51,7 @@ function loadFileTypesList(parameter, dummy, callback) {
             })
         }
         // check if parameters can be suported by T3K
-        parameter.t3k = supportsT3K(parameter)
+        parameter.t3k = supportsT3K(parameter) && !!getT3KIntegration()
         if (parameter.t3k) {
             // this parameter can be downloaded from T3K
             files.push({
@@ -1212,8 +1219,8 @@ function GUI(effect, options) {
 
                         if (parameter) {
                             // TODO T3K: check if file type can be downloaded from tone3000
-                            const t3k = desktop.pedalboard.data('T3KIntegration')
-                            if (t3k && typeof t3k.startSelectFlow === 'function') {
+                            const t3k = getT3KIntegration()
+                            if (t3k) {
                                 t3k.startSelectFlow(instance, parameter)
                             }
                         }
@@ -1509,9 +1516,8 @@ function GUI(effect, options) {
                     self.lv2PatchSet(uri, parameter.valuetype, value, control)
                 },
                 urihandle: function(value) {
-                    console.log(`handle special uri ${value}`)
-                    const t3k = desktop.pedalboard.data('T3KIntegration')
-                    t3k.startSelectFlow(instance, parameter)
+                    const t3k = getT3KIntegration()
+                    if (t3k) t3k.startSelectFlow(instance, parameter)
                 }
             })
 

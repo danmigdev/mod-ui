@@ -380,6 +380,9 @@ MOD_API const PluginInfo_Mini* const* get_all_plugins(void);
 // get a specific plugin
 // NOTE: may return null
 MOD_API const PluginInfo* get_plugin_info(const char* uri);
+// Return the installed plugin's main bundle path without scanning its presets.
+// The returned pointer remains valid until the next call to this function.
+MOD_API const char* get_plugin_bundle_path(const char* uri);
 
 // get a specific plugin (non-cached specific info)
 // NOTE: may return null

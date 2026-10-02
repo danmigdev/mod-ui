@@ -4,6 +4,7 @@
 
 import os, sys
 from os.path import join
+from mod.patchstorage import get_config as get_patchstorage_config
 
 DEV_ENVIRONMENT = bool(int(os.environ.get('MOD_DEV_ENVIRONMENT', False)))
 DEV_HMI = bool(int(os.environ.get('MOD_DEV_HMI', DEV_ENVIRONMENT)))
@@ -49,7 +50,9 @@ os.environ['MOD_KEYS_PATH'] = KEYS_PATH
 DOWNLOAD_TMP_DIR = os.environ.get('MOD_DOWNLOAD_TMP_DIR', '/tmp/mod-ui')
 PEDALBOARD_TMP_DIR = os.environ.get('MOD_PEDALBOARD_TMP_DIR', join(DATA_DIR, 'pedalboard-tmp-data'))
 
-LV2_PLUGIN_DIR = os.environ.get('MOD_USER_PLUGINS_DIR', os.path.expanduser("~/.lv2"))
+LV2_PLUGIN_DIR = os.environ.get('MOD_USER_PLUGINS_DIR',
+                                os.environ.get('LV2_PLUGIN_DIR', os.path.expanduser("~/.lv2")))
+PRESETS_DIR = os.environ.get('MOD_PRESETS_DIR', LV2_PLUGIN_DIR)
 LV2_PEDALBOARDS_DIR = os.environ.get('MOD_USER_PEDALBOARDS_DIR', os.path.expanduser("~/.pedalboards"))
 LV2_FACTORY_PEDALBOARDS_DIR = os.environ.get('MOD_FACTORY_PEDALBOARDS_DIR', "/usr/share/mod/pedalboards")
 
@@ -82,6 +85,14 @@ PEDALBOARDS_HTTP_ADDRESS = os.environ.pop('MOD_PEDALBOARDS_HTTP_ADDRESS', "https
 PEDALBOARDS_LABS_HTTP_ADDRESS = os.environ.pop('MOD_PEDALBOARDS_LABS_HTTP_ADDRESS', "https://pedalboards-labs.mod.audio")
 CONTROLCHAIN_HTTP_ADDRESS = os.environ.pop('MOD_CONTROLCHAIN_HTTP_ADDRESS',
                                            "https://download.mod.audio/releases/cc-firmware/v3")
+
+# Patchstorage uses public binaries matching the userspace ABI. Existing MODEP
+# environment names remain supported, including a locally hosted API proxy.
+_patchstorage_config = get_patchstorage_config()
+PATCHSTORAGE_ENABLED = _patchstorage_config['enabled']
+PATCHSTORAGE_API_URL = _patchstorage_config['api_url']
+PATCHSTORAGE_PLATFORM_ID = _patchstorage_config['platform_id']
+PATCHSTORAGE_TARGET_ID = _patchstorage_config['target_id']
 
 # Tone3000 integration. The client id is the OAuth publishable key (t3k_pub_...) -- a
 # public value, but deployment configuration, so it is deliberately never committed.

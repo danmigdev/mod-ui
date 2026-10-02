@@ -7,6 +7,7 @@ import sys
 import re
 import json
 import shutil
+from modtools import tornado_compat  # noqa: F401
 
 from datetime import datetime
 from functools import wraps

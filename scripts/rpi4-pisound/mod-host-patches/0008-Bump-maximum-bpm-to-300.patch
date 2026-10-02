@@ -1,0 +1,40 @@
+From 8e3f4598b0fba1e0128ec61b6153977cfe7b3bf4 Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Thu, 6 Mar 2025 10:26:20 +0100
+Subject: [PATCH 08/11] Bump maximum bpm to 300
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit e2bda738e2d6c14616b82f6452b8235c709ffd05)
+---
+ src/effects.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/effects.c b/src/effects.c
+index 7786bc8..e07e6a4 100644
+--- a/src/effects.c
++++ b/src/effects.c
+@@ -2567,9 +2567,9 @@ static int ProcessGlobalClient(jack_nframes_t nframes, void *arg)
+                             // set a sane low limit
+                             if (dvalue <= 20.0)
+                                 g_transport_bpm = 20;
+-                            // >280 BPM over MIDI is unreasonable
+-                            else if (dvalue >= 280.0)
+-                                g_transport_bpm = 280.0;
++                            // >300 BPM over MIDI is unreasonable
++                            else if (dvalue >= 300.0)
++                                g_transport_bpm = 300.0;
+                             // we are good!
+                             else
+                                 g_transport_bpm = dvalue;
+@@ -6861,7 +6861,7 @@ int effects_licensee(int effect_id, char **licensee_ptr)
+ int effects_set_beats_per_minute(double bpm)
+ {
+   int result = SUCCESS;
+-  if ((20.0 <= bpm) && (bpm <= 280.0)) {
++  if ((20.0 <= bpm) && (bpm <= 300.0)) {
+     // Change the current global value and set a flag that it was changed.
+     g_transport_bpm = bpm;
+     g_transport_reset = true;
+-- 
+2.45.1.windows.1
+

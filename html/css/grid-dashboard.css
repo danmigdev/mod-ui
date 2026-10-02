@@ -979,6 +979,23 @@ body.grid-shelf-collapsed #grid-canvas-wrap { top: var(--grid-header-h, 64px); }
     min-width: 0;
 }
 
+.grid-param-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.grid-param-group-heading {
+    margin: 4px 0 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--grid-border);
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--grid-text);
+    overflow-wrap: anywhere;
+}
+
 .grid-param-name {
     width: 130px;
     flex-shrink: 0;
