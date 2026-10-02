@@ -18,7 +18,7 @@ NOTE: libjack-jackd2-dev can be replaced by libjack-dev if you are using JACK1; 
 
 Start by cloning the repository::
 
-    $ git clone git://github.com/moddevices/mod-ui
+    $ git clone --branch grid-theme https://github.com/danmigdev/mod-ui.git
     $ cd mod-ui
 
 Create a python virtualenv::
@@ -67,19 +67,45 @@ mod-ui ships two independent front-end themes, both served by the same backend:
 - **Default** (``/`` or ``/index.html``): the original free-canvas pedalboard editor, with each
   plugin drawn at its own custom skin size and connected with hand-dragged cables.
 - **Grid** (``/grid.html``): a newer, Fractal Audio FM3-Edit-style editor, with plugins as
-  uniform blocks in a configurable row/column grid, a single auto-wired signal chain, and
-  parameters edited in a bottom panel (real plugin skin on one side, a generic control list on
-  the other). It has its own plugin store, file manager, TONE3000 browser, snapshots, transport
-  controls (play/stop, tempo with tap, beats-per-bar, tempo-sync source), a MIDI-devices dialog,
-  CPU and RAM meters, and an audio-buffer setting (8-1024 frames). Still missing a few of the
-  default theme's features: CV-port management, control-chain device management, cloud
-  bank/preset sharing, the tuner and the update check.
+  uniform blocks in a configurable row/column grid and parameters edited in a bottom panel.
+  It supports manual audio connections and parallel signal paths. Placing a new block
+  next to another can connect matching ports automatically; moving an existing block keeps
+  its connections. When port counts differ during manual wiring, a dialog lets you choose
+  the connections; adjacent placement leaves those ports unconnected.
 
 Each theme has a link to switch to the other: the grid icon in the default theme's top menu bar,
 and "Classic UI" under Settings in the grid theme.
 
 .. image:: docs/screenshots/grid-theme.png
    :alt: The Grid theme editor
+
+Click a plugin block to open its editor at the bottom: the plugin's own graphical interface
+on the left and generic controls on the right. Both views edit the same plugin. The panel
+includes presets, audio-port connections, an Active switch, parameter reset buttons, and
+file selectors for plugins that use audio files, impulse responses or models. Drag the panel
+edges to resize it; the plugin skin has independent zoom controls.
+
+.. image:: docs/screenshots/grid-plugin-parameters.png
+   :alt: Audio File selected in the Grid theme, with its graphical interface and parameters in the bottom panel
+
+Banks, snapshots and device controls
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- **Banks / Pedalboards / Snapshots:** the top-left menu opens the navigation tree. An open
+  pedalboard that is not in a bank remains visible, with an **Add to a bank** action. Add it
+  to a bank to enable Save and snapshot creation.
+- **Transport:** play/stop, BPM adjustment and tap tempo are in the toolbar. Settings adds
+  beats-per-bar and tempo synchronization (internal, MIDI clock slave or Ableton Link).
+- **Meters:** CPU and RAM usage are shown in the toolbar, along with xruns when reported.
+- **Settings:** text size is independent of grid zoom. Audio buffer sizes range from 8 to
+  1024 frames in powers of two, subject to the audio driver's support. The MIDI devices
+  dialog selects devices and offers aggregated mode and MIDI Loopback when available.
+
+The Grid theme still lacks some features of the default theme: CV-port management,
+control-chain device management, cloud bank/preset sharing, the tuner and the update check.
+
+Plugin store and files
+~~~~~~~~~~~~~~~~~~~~~~
 
 The grid theme has its own plugin store (Patchstorage) and an Explorer-style file manager,
 both built in its own visual style:
@@ -106,20 +132,30 @@ mod-ui in place — from a checkout of this branch, on a machine that can SSH to
 
     $ scripts/deploy-tone3000/deploy.sh --host user@device --key t3k_pub_xxxxxxxx
 
-That one run installs:
+That run installs the TONE3000 integration and patches the backend for Grid:
 
-- the **grid theme** — ``grid.html``, every ``grid-*.js`` / ``grid-*.css`` (they are plain
-  static assets this branch owns), plus the ``grid()`` template route in ``webserver.py``
-  so ``/grid.html`` renders;
+- the **grid template route** — ``grid()`` in ``webserver.py`` so an installed
+  ``grid.html`` renders;
 - the **grid file manager** backend — the ``/filesvc`` proxy and ``/filesvc-stat`` handlers
   ``html/js/grid-file-manager.js`` needs (never committed upstream);
-- the **TONE3000** integration in both themes — see the section below for the key.
+- the **raw bank-list endpoint** used by grid navigation and the **8-1024-frame buffer-size
+  route and validation** used by Settings;
+- the **TONE3000** integration — see the section below for the key.
+
+Grid frontend assets (``grid.html``, all ``grid-*.js`` and the Grid stylesheets) are
+refreshed only if ``grid.html`` already exists on the device and ``--no-grid`` is not set.
+The script does not install the Grid frontend on a device that has never had it; use a
+source checkout or your own image for a complete installation.
 
 Every file it changes is backed up to ``<file>.pre-tone3000``; it syntax-checks the Python,
 HTTP-checks the restarted service, and rolls everything back if the service does not come up.
 ``deploy.sh --host user@device --rollback`` undoes it. See
 ``scripts/deploy-tone3000/README.md`` for the details, ``--dry-run``, and running it directly
 on the device.
+
+The deploy script does not update ``modgui.js``. On a packaged installation without this
+branch's file-list refresh changes, reload the page to see newly downloaded models in a
+plugin that was already open.
 
 Not covered by the script: a few independent ``webserver.py`` bug-fixes this branch also
 carries (snapshot/bank save guards, ``poweroff``) and ``polkit/49-mod-ui-power.rules`` (so
@@ -168,8 +204,23 @@ architecture and model size, then download whole tones or individual captures:
 .. image:: docs/screenshots/tone3000.jpg
    :alt: Browsing the TONE3000 catalogue inside the Grid theme
 
-Test
-----
+Tests
+-----
+
+Frontend
+~~~~~~~~
+
+The JavaScript suite uses Node's built-in test runner and jsdom. From the repository root::
+
+    $ npm ci
+    $ npm test
+
+Use ``npm run test:watch`` while developing. These tests exercise frontend logic and DOM
+interactions without JACK or a running mod-ui server; browser layout and device integration
+still need manual checks. See ``test/js/README.md`` for the test harness and scope.
+
+Backend
+~~~~~~~
 
 The test suite in ``test/`` contains HTTP-level characterization tests (pytest + tornado's testing tools).
 They run against a faked audio backend, so no JACK, mod-host or MOD hardware is needed.

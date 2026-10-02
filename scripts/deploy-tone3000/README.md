@@ -1,35 +1,35 @@
 # deploy-tone3000
 
-Installs the TONE3000 integration onto a mod-ui that runs from a distro package
+Installs the TONE3000 integration and updates an existing Grid theme on a mod-ui that runs from a distro package
 (Blokas' `modep-mod-ui`, MOD's own images) where you cannot just replace the
-source tree. It patches the installed files in place with small anchored
-insertions and drops in three new files.
+source tree. It patches the installed files in place with anchored insertions
+and copies the branch's frontend assets.
 
 ## What it changes
 
-New files copied into the web root:
+Frontend assets copied into the web root:
 
 - `js/tone3000.js`, `tone3000-callback.html`, `img/tone3000-icon.png` (default theme)
-- `tone3000-connect.html`, `js/grid-tone3000.js` (grid theme)
+- When `grid.html` already exists on the device and `--no-grid` is not set:
+  `tone3000-connect.html`, `grid.html`, all `js/grid-*.js`,
+  `css/grid-dashboard.css` and `css/grid-manage.css` (the complete Grid frontend,
+  including TONE3000, transport, MIDI devices and Settings)
 
 Anchored insertions (each file backed up to `<file>.pre-tone3000` first):
 
 | File | Change |
 |---|---|
 | `mod/settings.py` | `TONE3000_CLIENT_ID` / `TONE3000_API` (env var, then key file, then empty) |
-| `mod/webserver.py` | import, two template vars, the `FilesUpload` handler, one route |
+| `mod/webserver.py` | TONE3000 template vars and upload route; Grid template rendering, file-manager proxy/stat routes, raw bank-list endpoint, and 8–1024-frame buffer-size route and validation |
 | `html/index.html` | two template vars, the box wiring, the script tag, the menu icon, the panel |
 | `html/js/desktop.js` | `makeTone3000Box` wiring (four spots) |
 | `html/css/main.css` | the Tone3000 tab styling (appended) |
 
-Grid theme (only when `grid.html` is present; `--no-grid` to skip). These are not
-part of any package and this branch owns them, so they are dropped in whole and
-backed up to `.pre-tone3000`:
-
-| File | Change |
-|---|---|
-| `html/grid.html` | bootstrap vars, script tag, toolbar button, overlay markup |
-| `html/css/grid-dashboard.css` | the grid TONE3000 styles |
+The script refreshes Grid assets only if the device already has `grid.html`;
+use `--no-grid` to skip its assets. Existing Grid files are backed up to
+`.pre-tone3000` before replacement. Open `/grid.html` after deployment.
+For a fresh Grid installation, run this branch from source or build your device image
+from it.
 
 `modgui.js` is **not** touched in either theme. Without its change, a tone
 downloaded while a NAM plugin is already on the board shows up after the next page
@@ -76,7 +76,7 @@ Defaults: `--html-dir /usr/share/mod/html`, `--mod-dir
 
 ## Safety
 
-- Idempotent: re-running is a no-op (each file carries a marker once patched).
+- Re-running skips backend edits already present and refreshes the copied frontend assets.
 - After patching, `apply.py` syntax-checks the Python files and does an HTTP
   check against the restarted service. If it does not come back healthy it
   restores every backup, restarts again, and exits non-zero.
