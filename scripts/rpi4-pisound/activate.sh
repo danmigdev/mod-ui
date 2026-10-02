@@ -64,7 +64,9 @@ ExecStart=/usr/bin/authbind $build_dir/venv/bin/python $build_dir/mod-ui/scripts
 EOF
 systemctl daemon-reload
 systemctl restart modep-mod-host.service modep-mod-ui.service
-systemctl is-active --quiet modep-mod-host.service modep-mod-ui.service
+for unit in modep-mod-host.service modep-mod-ui.service; do
+    systemctl is-active --quiet "$unit"
+done
 healthy=0
 for attempt in {1..10}; do
     if curl --silent --fail --max-time 3 'http://localhost/grid.html?v=integration' \
