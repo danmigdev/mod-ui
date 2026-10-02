@@ -24,6 +24,45 @@ controller. Neither signal chain should require a separate device or audio host.
 - MIDI recall continues to work with the browser closed.
 - Preset changes should minimize audible discontinuity and preserve retiring
   delay/reverb tails when topology changes.
+- NetJACK is excluded from the live audio path.
+
+Hardware deployment
+-------------------
+
+The baseline runtime below uses one Raspberry Pi 5 and one audio host. An
+alternative under consideration uses two Raspberry Pi 5 boards in parallel
+inside one appliance, with one board dedicated to Guitar and the other to
+Microphone. Both deployments retain mod-ui and mod-host.
+
+In the parallel deployment each board runs its own JACK/mod-host engine and has
+its own audio interface. The audio paths are independent::
+
+    Guitar     -> Interface A ADC -> Pi A effects -> Interface A DAC -> Guitar output
+    Microphone -> Interface B ADC -> Pi B effects -> Interface B DAC -> Microphone output
+
+There is no audio transfer between the boards and no intermediate AD/DA stage
+in either path. Use separate physical outputs, or combine them in an analogue
+mixer if a common output is needed. Independent audio clocks are acceptable for
+these separate paths; combining their audio digitally would require clock
+synchronization or drift compensation. An ordinary USB audio interface cannot
+be split between two USB hosts.
+
+One coordinator provides the UI, preset library, master references and arbitrary
+twelve-switch MIDI assignments. Ethernet carries control and state messages,
+not live audio. This requires a node-aware backend extension; the current Host
+connects to one local mod-host and does not provide this distributed workflow.
+Each node needs local copies of its preset state assets before reporting ready.
+
+For master recall, prepare both destinations before requesting either
+transition. Control-network coordination does not guarantee sample-accurate
+switching. Report partial transitions or an unavailable node explicitly;
+preparation failure must leave both active chains unchanged. Losing the control
+connection must not stop an already running local audio graph.
+
+Spillover remains local to each board. Each board must sustain its own active,
+prepared and retiring graphs; two boards do not automatically eliminate preset
+gaps or share spare CPU capacity. Measure input-to-output latency, recall
+response and xruns on each board with the intended interfaces and plugins.
 
 Library and master references
 -----------------------------
