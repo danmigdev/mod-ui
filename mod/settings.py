@@ -102,6 +102,10 @@ if not TONE3000_CLIENT_ID:
         pass
 TONE3000_API = os.environ.get('MOD_TONE3000_API', "https://www.tone3000.com")
 
+# Where "Report a problem" sends people: the forum topic (or category) for the running
+# release. Set per build, like the version; the default is the forum's Beta Testing category.
+FEEDBACK_URL = os.environ.get('MOD_FEEDBACK_URL', "https://forum.mod.audio/c/beta-testing/41")
+
 MIDI_BEAT_CLOCK_SENDER_URI = "urn:mod:mclk"
 MIDI_BEAT_CLOCK_SENDER_INSTANCE_ID = 9993
 MIDI_BEAT_CLOCK_SENDER_OUTPUT_PORT = "mclk" # This is the LV2 symbol of the plug-ins OutputPort
