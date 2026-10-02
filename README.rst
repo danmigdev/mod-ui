@@ -144,6 +144,11 @@ build scripts in ``scripts/rpi4-pisound/``.
 UI and host beside the packaged programs and activates them with reversible
 MODEP service overrides. Rebuild the native library with this Python wrapper.
 
+Native build and deployment were verified on Raspberry Pi 4/Pisound with
+64-bit Patchbox OS at revision ``ec86b834``. The live Grid browser, ARM64
+catalog, and file manager passed smoke checks. Physical audio and performance
+validation remain pending; see the guide for the validation boundaries.
+
 **Other source installations.** Follow *Install* and *Run* above, with a compatible
 mod-host and JACK server. Grid is available at ``/grid.html``.
 

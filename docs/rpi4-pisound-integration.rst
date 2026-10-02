@@ -255,10 +255,28 @@ Grid template bootstrap, MODEP-compatible current-state APIs,
 architecture selection, Patchstorage metadata, and plugin installation.
 These tests use simulated host/services where described in the test suite.
 
-Actual Raspberry Pi 4/Pisound startup, audio latency, xruns, resource
-headroom, and physical MIDI/button behavior require validation on the
-device. Independent-chain spillover and master recall remain unimplemented
-runtime features; the existing interactive mockups simulate their behavior.
+Native build and deployment were verified on 2026-10-03 using UI revision
+``ec86b83457f6610d8c4cb697cdc569dec69cb236`` on Raspberry Pi 4/Pisound,
+Patchbox OS arm64, and Python 3.11.2, with Hylia enabled. Activation used
+the subsequent ``f0efc6fa`` deployment script, which checks each service
+independently. The UI, host, JACK, browsepy, MIDI services, and Pisound
+button service remained active. JACK was not restarted during activation;
+the existing 48 kHz sample rate and 128-frame buffer were retained. All
+four existing pedalboards and 18 installed plugins were preserved; 13
+plugins retained their Patchstorage metadata.
+
+A real browser session, without mocked services, reported no JavaScript
+errors or failed HTTP requests. The ARM64 Patchstorage catalog displayed 361
+cards across four pages using platform ``8046`` and target ``8280``.
+File manager browsing and storage details returned successfully. The
+current pedalboard contained no plugin instances, so the live parameter
+panel could not be exercised in this device smoke check. Pedalboards
+marked as broken had the same status before deployment.
+
+Physical audio listening, latency, xruns, resource headroom, and physical
+MIDI/button operation remain unverified. Independent-chain spillover and
+master recall remain unimplemented runtime features; the existing
+interactive mockups simulate their behavior.
 
 Official package sources
 ------------------------

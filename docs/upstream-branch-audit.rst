@@ -8,9 +8,9 @@ and the existing Grid theme. English is required for project code,
 documentation, commit messages, and GitHub content.
 
 This document records a mod-ui source-selection audit. It does not claim
-that every source feature is implemented, that mod-host has been validated
-on the device, or that hardware performance has been measured. The mod-host
-review and deployment validation are separate integration work.
+that every source feature is implemented or that hardware performance has
+been measured. The mod-host review and native Raspberry deployment results
+are recorded separately in ``rpi4-pisound-integration.rst``.
 
 Sources and review method
 -------------------------
