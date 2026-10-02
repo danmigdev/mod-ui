@@ -25,7 +25,7 @@ pkg-config --exists jack lilv-0 alsa || {
 [[ $(python3 -c 'import struct; print(struct.calcsize("P") * 8)') = 64 ]] || {
     echo 'This build recipe targets 64-bit userspace.' >&2; exit 1;
 }
-[[ -z $(git -C "$repo_dir" status --porcelain --untracked-files=no) ]] || {
+git -C "$repo_dir" diff --quiet --ignore-cr-at-eol HEAD -- || {
     echo 'Commit tracked source changes before building the pinned checkout.' >&2; exit 1;
 }
 output_dir=$(realpath -m -- "$output_dir")
@@ -58,7 +58,7 @@ if [[ -n "$host_source" ]]; then
     [[ $(git -C "$host_source" rev-parse 'HEAD^{tree}') = "$host_tree" ]] || {
         echo 'The supplied mod-host tree does not match the reviewed integration.' >&2; exit 1;
     }
-    [[ -z $(git -C "$host_source" status --porcelain --untracked-files=no) ]] || {
+    git -C "$host_source" diff --quiet --ignore-cr-at-eol HEAD -- || {
         echo 'The supplied mod-host tree has uncommitted source changes.' >&2; exit 1;
     }
     git -C "$host_source" archive HEAD | tar -xf - -C "$output_dir/mod-host"
