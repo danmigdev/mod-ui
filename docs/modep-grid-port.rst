@@ -109,8 +109,9 @@ Build on the Raspberry from a committed checkout, using a new output folder::
 Review build.sh prerequisites and the existing service environment first.
 Activation retains the existing modep service user and inherited data paths.
 The script requires both MODEP UI and host services and supports rollback
-through the matching rollback.sh script. This port has not been activated
-on Raspberry/Pisound hardware yet.
+through the matching rollback.sh script. When replacing an existing custom
+build, retain its drop-ins as well as its build directory: the generic
+rollback.sh restores packaged MODEP, rather than the previous custom build.
 
 Updates
 -------
@@ -142,5 +143,44 @@ library. Stock constructor/store regressions and HTTP tests cover both
 layouts, local assets, OAuth popup pages, .tapf, current-board/snapshot APIs,
 installer metadata, snapshot persistence and the official-upgrade guard.
 
-These results do not establish live catalog/download availability, real
-browser layout, audio latency, hardware MIDI or a Raspberry deployment.
+The additional raw-bank regression passes with the 12-test MODEP integration
+suite. It checks both URL forms and verifies that reading membership retains
+unscanned entries without rewriting banks.json.
+
+Raspberry deployment, 2026-10-03
+-------------------------------
+
+Code revision b588f468d5ad3bbeac5b9383ae3400c13a1b078a was activated on
+the Raspberry Pi 4/Pisound at 192.168.1.20, using the ARM64 build directory
+/opt/modep-grid-a4de41a6. The initial build was compiled on the device;
+the subsequent Python-only raw-bank fix was exported from the committed
+checkout into that build and its build.json revision updated. Native
+utilities, mod-host and dependency installation were unchanged by that fix.
+Hylia/Ableton Link remains compiled into mod-host.
+
+Both UI and host services use the new build. JACK retained its original
+process; browsepy, MIDI services and the Pisound button service remain
+active. Native metadata checks found all 18 installed plugins and the same
+13 Patchstorage identities. Hash checks confirmed unchanged pedalboards,
+plugins and user files; API comparisons confirmed unchanged pedalboard and
+snapshot lists. banks.json and the TONE3000 client configuration also match
+the pre-deployment backup. Two pedalboards already marked broken retained
+that status.
+
+Real Chromium sessions opened both stock and Grid stores, fetched the ARM64
+Patchstorage catalog with platform 8046 and target 8280, and reported no
+JavaScript errors or failed HTTP requests. Grid displayed 361 plugin cards.
+The file manager, raw-bank endpoint and official version check returned
+successfully. The official updater reports custom_build=true and
+upgrade_allowed=false.
+
+The previous build remains at /opt/mod-grid-ec86b834. Its service drop-ins
+and a complete /var/modep archive are retained in the root-only directory
+/opt/modep-grid-backup-a4de41a6. Restore the previous custom build with::
+
+    sudo bash /opt/modep-grid-backup-a4de41a6/rollback.sh
+
+The data archive is a separate recovery copy; routine rollback only restores
+the service selection. Physical audio listening, latency, xruns, MIDI/button
+operation and plugin downloads/installations were not exercised by this
+deployment smoke check.
