@@ -1882,6 +1882,12 @@ class BankLoad(JsonRequestHandler):
         # All set
         self.write(banks)
 
+class BankLoadRaw(JsonRequestHandler):
+    def get(self):
+        # Grid membership checks must retain saved entries even when the
+        # pedalboard scanner marks them as broken or has not cached them yet.
+        self.write(safe_json_load(USER_BANKS_JSON_FILE, list))
+
 class BankSave(JsonRequestHandler):
     def post(self):
         banks = json.loads(self.request.body.decode("utf-8", errors="ignore"))
@@ -2706,6 +2712,7 @@ application = web.Application(
 
             # bank stuff
             (r"/banks/?", BankLoad),
+            (r"/banks/raw/?", BankLoadRaw),
             (r"/banks/save/?", BankSave),
 
             (r"/auth/nonce/?$", AuthNonce),

@@ -55,6 +55,24 @@ class TestModepGridIntegration(ModUITestCase):
         self.assertEqual(self.fetch('/pedalboard/current').body, b'/tmp/example.pedalboard')
         self.assertEqual(self.fetch('/snapshot/current').body, b'Clean')
 
+    def test_raw_banks_keep_unscanned_entries_without_rewriting_the_file(self):
+        banks = [{'title': 'Live', 'pedalboards': [
+            {'title': 'Unscanned', 'bundle': '/missing/example.pedalboard'}]}]
+        with tempfile.TemporaryDirectory() as folder:
+            filename = os.path.join(folder, 'banks.json')
+            original = json.dumps(banks, indent=2).encode()
+            with open(filename, 'wb') as handle:
+                handle.write(original)
+            with patch('mod.webserver.USER_BANKS_JSON_FILE', filename), \
+                 patch('mod.webserver.list_banks') as filtered:
+                for url in ('/banks/raw', '/banks/raw/'):
+                    response = self.fetch(url)
+                    self.assertEqual(response.code, 200)
+                    self.assertEqual(json.loads(response.body), banks)
+                filtered.assert_not_called()
+            with open(filename, 'rb') as handle:
+                self.assertEqual(handle.read(), original)
+
     def test_both_stock_and_grid_install_urls_forward_store_identity(self):
         for url in ('/effect/install', '/effect/install/'):
             with patch('mod.webserver.install_package') as install:
