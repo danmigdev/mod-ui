@@ -107,8 +107,8 @@ applied during builds. The UI base remains Blokas modep-1.13-ps.
 
 The host branch compiled and passed all isolated JACK/LV2 integration checks
 on WSL, including audio routing, buffer changes, MIDI, transport, presets/state
-and socket/worker framing. This publication does not replace the active
-Raspberry build described below. Pull requests can target the Blokas UI and
+and socket/worker framing. Raspberry deployment details are recorded below.
+Pull requests can target the Blokas UI and
 host independently; the host PR includes stable upstream updates as well as
 the selected integration fixes, rather than being a Grid-only UI change.
 
@@ -196,3 +196,29 @@ The data archive is a separate recovery copy; routine rollback only restores
 the service selection. Physical audio listening, latency, xruns, MIDI/button
 operation and plugin downloads/installations were not exercised by this
 deployment smoke check.
+
+Blokas-based host deployment, 2026-10-03
+--------------------------------------
+
+The Raspberry now runs UI revision e3224081a519c8d0ff40bcaf04ea919396e72287
+and host revision 17032c376662b5889967b58846c2bffecfed7755, compiled natively
+into /opt/modep-grid-e3224081. The build fetched the host from the published
+fork and verified its pinned source tree; Hylia remains enabled. Both MODEP
+services use this build without automatic restarts.
+
+Post-activation checks found all seven related services active, the original
+JACK process still running, unchanged pedalboard/snapshot/bank API data,
+and matching hashes for pedalboards, plugins and user files. banks.json and
+the TONE3000 configuration match the backup. Native scanning still finds
+18 plugins and 13 Patchstorage identities. Stock and Grid store browser
+checks reported no JavaScript errors or failed requests; Grid displayed
+361 catalog cards. File-manager and official-version-check endpoints returned
+HTTP 200, and the service journal contained no error-priority entries in the
+activation check window. Physical audio and hardware interaction remain
+outside these smoke checks.
+
+The previous custom build remains at /opt/modep-grid-a4de41a6. Its service
+drop-ins, a complete data archive and the validation record are retained in
+/opt/modep-grid-backup-e3224081. Restore that build with::
+
+    sudo bash /opt/modep-grid-backup-e3224081/rollback.sh
