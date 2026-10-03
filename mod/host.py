@@ -3015,6 +3015,10 @@ class Host(object):
         self.current_pedalboard_snapshot_id = 0
         self.pedalboard_snapshots = [self.snapshot_make(DEFAULT_SNAPSHOT_NAME)]
 
+    def save_snapshots_to_disk(self):
+        if self.pedalboard_path:
+            self.save_state_snapshots(self.pedalboard_path)
+
     def snapshot_save(self):
         idx = self.current_pedalboard_snapshot_id
 

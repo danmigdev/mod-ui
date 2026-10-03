@@ -1,19 +1,5 @@
-/*
- * MOD-UI utilities
- * Copyright (C) 2015-2022 Filipe Coelho <falktx@falktx.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of
- * the License, or any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * For a full copy of the GNU General Public License see the COPYING file.
- */
+// SPDX-FileCopyrightText: 2012-2023 MOD Audio UG
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "utils.h"
 
@@ -38,8 +24,8 @@
 #define ALSA_CONTROL_SPDIF_ENABLE  "SPDIF Enable"
 #define ALSA_CONTROL_MASTER_VOLUME "DAC"
 
-#define JACK_SLAVE_PREFIX     "mod-slave"
-#define JACK_SLAVE_PREFIX_LEN 9
+#define JACK_EXTERNAL_PREFIX     "mod-external"
+#define JACK_EXTERNAL_PREFIX_LEN 12
 
 // --------------------------------------------------------------------------------------------------------
 
@@ -115,7 +101,7 @@ static void JackPortRegistration(jack_port_id_t port_id, int reg, void*)
         if (const char* const port_name = jack_port_name(port))
         {
             if (strncmp(port_name, "system:midi_", 12) != 0 &&
-                strncmp(port_name, JACK_SLAVE_PREFIX ":", JACK_SLAVE_PREFIX_LEN + 1) != 0 &&
+                strncmp(port_name, JACK_EXTERNAL_PREFIX ":", JACK_EXTERNAL_PREFIX_LEN + 1) != 0 &&
                 strncmp(port_name, "nooice", 5) != 0)
                 return;
 
@@ -213,8 +199,16 @@ bool init_jack(void)
         return true;
     }
 
+#ifdef _MOD_DESKTOP
+    const jack_options_t options = static_cast<jack_options_t>(JackNoStartServer|JackUseExactName|JackServerName);
+    const char* servername = std::getenv("MOD_DESKTOP_SERVER_NAME");
+    if (servername == nullptr)
+        servername = "mod-desktop";
+    jack_client_t* const client = jack_client_open("mod-ui", options, nullptr, servername);
+#else
     const jack_options_t options = static_cast<jack_options_t>(JackNoStartServer|JackUseExactName);
     jack_client_t* const client = jack_client_open("mod-ui", options, nullptr);
+#endif
 
     if (client == nullptr)
         return false;

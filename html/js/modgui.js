@@ -1,19 +1,5 @@
-/*
- * Copyright 2012-2013 AGR Audio, Industria e Comercio LTDA. <contato@moddevices.com>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2012-2023 MOD Audio UG
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 var loadedIcons = {}
 var loadedSettings = {}
@@ -38,17 +24,46 @@ function shouldSkipPort(port) {
     return false;
 }
 
+function supportsT3K(parameter) {
+    return parameter.fileTypes.some(type => type == 'nammodel' || type == 'cabsim' || type == 'ir' || type == 'aidadspmodel')
+}
+
+function getT3KIntegration() {
+    if (typeof desktop === 'undefined' || !desktop || !desktop.pedalboard ||
+        typeof desktop.pedalboard.data !== 'function') return null
+    var integration = desktop.pedalboard.data('T3KIntegration')
+    return integration && typeof integration.startSelectFlow === 'function' ? integration : null
+}
+
 function loadFileTypesList(parameter, dummy, callback) {
     var files = []
-    if (parameter.ranges.default) {
-        var sdef = parameter.ranges.default
-        files.push({
-            'fullname': sdef,
-            'basename': sdef.slice(sdef.lastIndexOf('/')+1),
-        })
+
+    parameter.files = files
+    parameter.basepaths = []
+    const addDefaultParamValues = function() {
+        if (parameter.ranges.default) {
+            var sdef = parameter.ranges.default
+            files.push({
+                'fullname': sdef,
+                'dirname': '',
+                'basename': sdef.slice(sdef.lastIndexOf('/')+1),
+                'icon': '<i class="icon-preset mod-select-path-icon"></i>' // box
+            })
+        }
+        // check if parameters can be suported by T3K
+        parameter.t3k = supportsT3K(parameter) && !!getT3KIntegration()
+        if (parameter.t3k) {
+            // this parameter can be downloaded from T3K
+            files.push({
+                'fullname': 't3k://browse',
+                'dirname': '',
+                'basename': 'Browse tones',
+                'icon': '<img class="t3k-enumerated-option-logo" src="js/lib/t3k/logo/T3K%20logo.png" />'
+            })
+        }
     }
     if (dummy) {
-        parameter.files = files
+        addDefaultParamValues()
         parameter.path = true
         callback()
         return
@@ -59,16 +74,86 @@ function loadFileTypesList(parameter, dummy, callback) {
             'types': parameter.fileTypes.join(","),
         },
         success: function (data) {
-            parameter.files = files.concat(data.files)
+            const dirs = []
+            const basePaths = []
+            for(let file of data.files) {
+                if (file.dirname && file.dirname.length > 0) {
+                    // add the file's directory and every ancestor below the basepath,
+                    // so a folder that only contains subfolders gets an entry too
+                    let dirPath = file.fullname
+                    let lastSlashIndex = Math.max(dirPath.lastIndexOf('/'), dirPath.lastIndexOf('\\'));
+
+                    while (lastSlashIndex > file.basepath.length) {
+                        dirPath = dirPath.slice(0, lastSlashIndex);
+                        if (!dirs.find((value, index) => value === dirPath)) {
+                            dirs.push(dirPath)
+                        }
+                        lastSlashIndex = Math.max(dirPath.lastIndexOf('/'), dirPath.lastIndexOf('\\'));
+                    }
+                }
+
+                if (!basePaths.find((value, index) => value === file.basepath)) {
+                    basePaths.push(file.basepath)
+                }
+            }
+
+            // file sorting criteria
+            // first directory
+            dirs.sort()
+            for(let dir of dirs) {
+                const lastSlashIndex = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\'));
+                let dirname
+
+                if (lastSlashIndex != -1) {
+                    dirname = dir.slice(lastSlashIndex + 1);
+                } else {
+                    dirname = dir
+                }
+                files.push({
+                    'basename': dirname,
+                    'dirname': dirname,
+                    'filetype': 'dir',
+                    'fullname': 'dir://' + dir
+                })
+            }
+
+            // then user downloaded files
+            files = files.concat(data.files)
+            // then plugin resources
+            // then special uris like t3k://
+            addDefaultParamValues()
+
+            parameter.files = files
+            parameter.basepaths = basePaths
             parameter.path = true
             callback()
         },
         error: function () {
+            addDefaultParamValues()
             callback()
         },
         cache: false,
         dataType: 'json',
     })
+}
+
+// Only worth expanding once the list outgrows the box. Re-run this whenever the options
+// change: a list that was short enough at build time may not be after a download.
+function assignFileListExpand(elem) {
+    var list = elem.find('.mod-enumerated-list')
+    var button = elem.find('.file-list-btn-expand').off('click')
+
+    if (list.length == 1 && list[0].childElementCount > 5) {
+        button.show().click(function () {
+            if (elem.hasClass('expanded')) {
+                elem.removeClass('expanded')
+            } else {
+                elem.addClass('expanded')
+            }
+        })
+    } else {
+        button.hide()
+    }
 }
 
 function loadDependencies(gui, effect, dummy, callback) { //source, effect, bundle, callback) {
@@ -537,6 +622,96 @@ function GUI(effect, options) {
         self.triggerJS({ type: 'change', symbol: symbol, value: value })
     }
 
+    /* A file dropdown is filled once, from the /files/list snapshot taken while the GUI was
+       being built, and nothing ever re-reads it -- so a file added afterwards stays invisible
+       to a plugin already on the board. The backend scan is always live; the staleness is
+       entirely here.
+
+       Re-render the plugin's own templates and swap in just the file-list widgets. Going
+       through the template is what makes this work for any plugin: we never build the option
+       nodes ourselves, so we never assume how the author nested them. Re-rendering the whole
+       icon is not an option -- its port elements carry the jsPlumb endpoints the connection
+       manager holds on to, so replacing them would cut every cable into this plugin. */
+    this.refreshFileTypesLists = function (fileType, hoist) {
+        var parameters = []
+        for (var i in effect.parameters) {
+            var parameter = effect.parameters[i]
+            if (parameter.path && parameter.fileTypes && parameter.fileTypes.indexOf(fileType) >= 0) {
+                parameters.push(parameter)
+            }
+        }
+        if (!parameters.length) {
+            return
+        }
+
+        /* The list arrives sorted by path. Lift the files named in `hoist` to the front, so a
+           tone the user just downloaded is the first thing in the dropdown instead of buried
+           wherever its name happened to sort. Only for as long as this GUI lives -- a reload
+           takes the list straight from /files/list again, in its own order. */
+        var reorder = function (files) {
+            if (!hoist || !hoist.length) {
+                return files
+            }
+            var isNew = function (file) {
+                return hoist.indexOf(file.fullname) >= 0
+            }
+            return files.filter(isNew).concat(files.filter(function (file) { return !isNew(file) }))
+        }
+
+        // The templates read effect.parameters, so refresh those, not the self.parameters copies.
+        var pending = parameters.length
+        parameters.forEach(function (parameter) {
+            loadFileTypesList(parameter, false, function () {
+                parameter.files = reorder(parameter.files)
+                if (--pending === 0) {
+                    self.swapFileWidgets()
+                }
+            })
+        })
+    }
+
+    this.swapFileWidgets = function () {
+        var templateData = self.getTemplateData(effect, self.skipNamespace)
+        var panels = [
+            [self.icon,     effect.gui.iconTemplate     || options.defaultIconTemplate],
+            [self.settings, effect.gui.settingsTemplate || options.defaultSettingsTemplate],
+        ]
+
+        panels.forEach(function (panel) {
+            var live = panel[0]
+            if (!live) {
+                return
+            }
+            var fresh = $('<div>').html(Mustache.render(panel[1], templateData))
+
+            live.find('[mod-widget=custom-select-path]').each(function () {
+                var old = $(this)
+                var uri = old.attr('mod-parameter-uri')
+                var node = fresh.find('[mod-widget=custom-select-path][mod-parameter-uri="' + uri + '"]')
+                if (node.length !== 1) {
+                    return
+                }
+
+                var parameter = self.parameters[uri]
+                parameter.widgets = parameter.widgets.filter(function (widget) {
+                    return widget[0] !== old[0]
+                })
+
+                /* assignControlFunctionality reads mod-instance off the element it is given and
+                   only looks downwards, so hand it a stand-in for the panel holding one widget.
+                   It re-registers the widget and restores the selection from parameter.value. */
+                var holder = $('<div>')
+                if (self.instance) {
+                    holder.attr('mod-instance', self.instance)
+                }
+                self.assignControlFunctionality(holder.append(node), false)
+
+                old.replaceWith(node)
+                assignFileListExpand(node.closest('.mod-file-list'))
+            })
+        })
+    }
+
     // lv2 patch messages, mostly used for parameters
     this.lv2PatchGet = function (uri) {
         // let the host know about this
@@ -818,6 +993,7 @@ function GUI(effect, options) {
 
     this.render = function (instance, callback, skipNamespace) {
         self.instance = instance
+        self.skipNamespace = skipNamespace
 
         var render = function () {
             self.preRender()
@@ -1035,18 +1211,20 @@ function GUI(effect, options) {
             {
                 self.settings.find('.mod-file-list').each(function () {
                     var elem = $(this)
-                    var list = elem.find('.mod-enumerated-list')
-                    if (list.length == 1 && list[0].childElementCount > 5) {
-                        elem.find('.file-list-btn-expand').click(function () {
-                            if (elem.hasClass('expanded')) {
-                                elem.removeClass('expanded')
-                            } else {
-                                elem.addClass('expanded')
+                    assignFileListExpand(elem)
+
+                    elem.find('.file-list-btn-t3k').click(function () {
+                        const uri = $(this).attr('mod-parameter-uri')
+                        const parameter = self.effect.parameters.find((p) => p.uri == uri)
+
+                        if (parameter) {
+                            // TODO T3K: check if file type can be downloaded from tone3000
+                            const t3k = getT3KIntegration()
+                            if (t3k) {
+                                t3k.startSelectFlow(instance, parameter)
                             }
-                        })
-                    } else {
-                        elem.find('.file-list-btn-expand').hide()
-                    }
+                        }
+                    })
                 })
             }
 
@@ -1139,6 +1317,9 @@ function GUI(effect, options) {
                     value: port.value
                 })
             }
+
+            // T3K Integration
+
             // ready!
             self.jsStarted = true
             self.triggerJS({ type: 'start', parameters: jsParameters, ports: jsPorts })
@@ -1257,6 +1438,100 @@ function GUI(effect, options) {
         if (handle.length > 0) {
             element.draggable(drag_options)
             element.click(options.click)
+        }
+    }
+
+    this.assignParameterControlFunctionality = function(element, instance, control, uri, onlySetValues) {
+        var parameter = self.parameters[uri]
+
+        if (parameter)
+        {
+            /*  */ if (parameter.type === "http://lv2plug.in/ns/ext/atom#Bool") {
+                parameter.valuetype = 'b'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Int") {
+                parameter.valuetype = 'i'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Long") {
+                parameter.valuetype = 'l'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Float") {
+                parameter.valuetype = 'f'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Double") {
+                parameter.valuetype = 'g'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#String") {
+                parameter.valuetype = 's'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Path") {
+                parameter.valuetype = 'p'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#URI") {
+                parameter.valuetype = 'u'
+            } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Vector") {
+                parameter.valuetype = 'v'
+            } else {
+                return
+            }
+
+            if (parameter.control || parameter.string)
+            {
+                // Set the display formatting of this control
+                if (parameter.string)
+                    parameter.format = '%s'
+                else if (parameter.units.render)
+                    parameter.format = parameter.units.render.replace('%f', '%.2f')
+                else
+                    parameter.format = '%.2f'
+
+                if (parameter.properties.indexOf("integer") >= 0) {
+                    parameter.format = parameter.format.replace(/%\.\d+f/, '%d')
+                }
+
+                var valueField = element.find('[mod-role=input-parameter-value][mod-parameter-uri="' + uri + '"]')
+                parameter.valueFields.push(valueField)
+
+                if (valueField.length > 0 && parameter.properties.indexOf("toggled") < 0)
+                {
+                    self.setupValueField(valueField, parameter, function (value) {
+                        self.lv2PatchSet(uri, parameter.valuetype, value, control)
+                        // setWritableParameterValue() skips this control as it's the same as the 'source'
+                        control.controlWidget('setValue', value, true)
+                    })
+                }
+            }
+            else if (parameter.path)
+            {
+                // TODO?
+            }
+            else
+            {
+                return
+            }
+
+            let currentPath = undefined
+            if (control.customSelectPath) {
+                // preserve current path if available
+                currentPath = control.customSelectPath('getCurrentPath')
+            }
+            control.controlWidget({
+                dummy: onlySetValues,
+                port: parameter,
+                currentPath: currentPath ,
+                change: function (e, value) {
+                    self.lv2PatchSet(uri, parameter.valuetype, value, control)
+                },
+                urihandle: function(value) {
+                    const t3k = getT3KIntegration()
+                    if (t3k) t3k.startSelectFlow(instance, parameter)
+                }
+            })
+
+            if (instance) {
+                control.attr("mod-instance", instance)
+            }
+
+            parameter.widgets.push(control)
+
+            self.setWritableParameterValue(uri, parameter.valuetype, parameter.value, control, true)
+        }
+        else
+        {
+            control.text('No such parameter: ' + uri)
         }
     }
 
@@ -1386,87 +1661,7 @@ function GUI(effect, options) {
         element.find('[mod-role=input-parameter]').each(function () {
             var control = $(this)
             var uri = $(this).attr('mod-parameter-uri')
-            var parameter = self.parameters[uri]
-
-            if (parameter)
-            {
-                /*  */ if (parameter.type === "http://lv2plug.in/ns/ext/atom#Bool") {
-                    parameter.valuetype = 'b'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Int") {
-                    parameter.valuetype = 'i'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Long") {
-                    parameter.valuetype = 'l'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Float") {
-                    parameter.valuetype = 'f'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Double") {
-                    parameter.valuetype = 'g'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#String") {
-                    parameter.valuetype = 's'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Path") {
-                    parameter.valuetype = 'p'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#URI") {
-                    parameter.valuetype = 'u'
-                } else if (parameter.type === "http://lv2plug.in/ns/ext/atom#Vector") {
-                    parameter.valuetype = 'v'
-                } else {
-                    return
-                }
-
-                if (parameter.control || parameter.string)
-                {
-                    // Set the display formatting of this control
-                    if (parameter.string)
-                        parameter.format = '%s'
-                    else if (parameter.units.render)
-                        parameter.format = parameter.units.render.replace('%f', '%.2f')
-                    else
-                        parameter.format = '%.2f'
-
-                    if (parameter.properties.indexOf("integer") >= 0) {
-                        parameter.format = parameter.format.replace(/%\.\d+f/, '%d')
-                    }
-
-                    var valueField = element.find('[mod-role=input-parameter-value][mod-parameter-uri="' + uri + '"]')
-                    parameter.valueFields.push(valueField)
-
-                    if (valueField.length > 0 && parameter.properties.indexOf("toggled") < 0)
-                    {
-                        self.setupValueField(valueField, parameter, function (value) {
-                            self.lv2PatchSet(uri, parameter.valuetype, value, control)
-                            // setWritableParameterValue() skips this control as it's the same as the 'source'
-                            control.controlWidget('setValue', value, true)
-                        })
-                    }
-                }
-                else if (parameter.path)
-                {
-                    // TODO?
-                }
-                else
-                {
-                    return
-                }
-
-                control.controlWidget({
-                    dummy: onlySetValues,
-                    port: parameter,
-                    change: function (e, value) {
-                        self.lv2PatchSet(uri, parameter.valuetype, value, control)
-                    }
-                })
-
-                if (instance) {
-                    control.attr("mod-instance", instance)
-                }
-
-                parameter.widgets.push(control)
-
-                self.setWritableParameterValue(uri, parameter.valuetype, parameter.value, control, true)
-            }
-            else
-            {
-                control.text('No such parameter: ' + uri)
-            }
+            self.assignParameterControlFunctionality(element, instance, control, uri, onlySetValues)
         })
 
         if (onlySetValues) {
@@ -1687,6 +1882,65 @@ function GUI(effect, options) {
         return data
     }
 
+    this.refreshPluginFileListParameter = function(instance, parameteri, setValue) {
+
+        loadFileTypesList(parameteri, false, function() {
+            let options = ""
+            var parameter = self.parameters[parameteri.uri]
+            // update indexed parameter with new files
+            $.extend(parameter, parameteri)
+            // delete previous widgets
+            parameter.widgets = []
+
+            for(let file of parameter.files) {
+                options +=
+                    '<div mod-role="enumeration-option" mod-parameter-value="' + file.fullname +'">' + file.basename + '</div>\n'
+            }
+
+            // need to update the values in the icon UI
+            self.icon
+                .find('.mod-enumerated[mod-role="input-parameter"][mod-parameter-uri="' + parameter.uri + '"]')
+                .find('.mod-enumerated-list')
+                .html(options)
+            self.icon
+                .find('[mod-role="input-parameter"][mod-parameter-uri="' + parameter.uri + '"]')
+                .each(function() {
+                    // reattach the widget
+                    let control = $(this)
+                    self.assignParameterControlFunctionality(self.icon, instance, control, parameter.uri, false)
+                })
+            // need to update the values in the settings UI
+            if (self.settings) {
+                self.settings
+                    .find('.mod-enumerated-list[mod-role="input-parameter"][mod-parameter-uri="' + parameter.uri + '"]')
+                    .html(options)
+                    .each(function() {
+                        // reattach the widget
+                        let control = $(this)
+                        self.assignParameterControlFunctionality(self.settings, instance, control, parameter.uri, false)
+                        if (setValue) {
+                            if (control.customSelectPath) {
+                                // preserve current path if available
+                                currentPath = control.customSelectPath('setValue', setValue)
+                            }
+                        }
+                    })
+            }
+
+            // need to update the values in the settings for performance mode
+            if (self.settingsPerformance) {
+                self.settingsPerformance
+                    .find('.mod-enumerated-list[mod-role="input-parameter"][mod-parameter-uri="' + parameter.uri + '"]')
+                    .html(options)
+                    .each(function() {
+                        // reattach the widget
+                        let control = $(this)
+                        self.assignParameterControlFunctionality(self.settingsPerformance, instance, control, parameter.uri, false)
+                    })
+            }
+        })
+    }
+
     this.jsData = {}
     this.jsStarted = false
 
@@ -1845,15 +2099,19 @@ var baseWidget = {
         self.data('minimum',      port.ranges.minimum)
         self.data('enumeration',  port.properties.indexOf("enumeration") >= 0)
         self.data('integer',      port.properties.indexOf("integer") >= 0)
-        self.data('logarithmic',  port.properties.indexOf("logarithmic") >= 0)
+        // log2 of a non-positive bound is undefined; treat such a port as linear
+        // instead of silently mapping the bound to 1 (which also made value 0 unreachable)
+        var isLogarithmic = port.properties.indexOf("logarithmic") >= 0
+                         && port.ranges.minimum > 0 && port.ranges.maximum > 0
+        self.data('logarithmic',  isLogarithmic)
         self.data('toggled',      port.properties.indexOf("toggled") >= 0)
         self.data('trigger',      port.properties.indexOf("trigger") >= 0)
         self.data('linear',       isLinear)
         self.data('scalePoints',  port.scalePoints)
 
-        if (port.properties.indexOf("logarithmic") >= 0) {
-            self.data('scaleMinimum', (port.ranges.minimum != 0) ? Math.log(port.ranges.minimum) / Math.log(2) : 0)
-            self.data('scaleMaximum', (port.ranges.maximum != 0) ? Math.log(port.ranges.maximum) / Math.log(2) : 0)
+        if (isLogarithmic) {
+            self.data('scaleMinimum', Math.log(port.ranges.minimum) / Math.log(2))
+            self.data('scaleMaximum', Math.log(port.ranges.maximum) / Math.log(2))
         } else {
             self.data('scaleMinimum', port.ranges.minimum)
             self.data('scaleMaximum', port.ranges.maximum)
@@ -2666,23 +2924,212 @@ JqueryClass('customSelect', baseWidget, {
 JqueryClass('customSelectPath', baseWidget, {
     init: function (options) {
         var self = $(this)
+        self.data('initialized', false)
+        self.data('icons', {
+            backArrow: `<i class="icon-folder-up mod-select-path-icon"></i>`,
+            folder: `<i class="icon-folder mod-select-path-icon"></i>`,
+            folderOpen: `<i class="icon-folder-open mod-select-path-icon"></i>`,
+            userFile: `<i class="icon-user-file mod-select-path-icon"></i>`,
+        })
+        self.data('currentPath', options.currentPath || [])
+        self.data('port', options.port)
+        self.data('urihandle', options.urihandle)
         self.customSelectPath('config', options)
         self.customSelectPath('setValue', options.port.value, true)
         self.find('[mod-role=enumeration-option]').each(function () {
             var opt = $(this)
+            let icon = undefined
+            const optValue = opt.attr('mod-parameter-value')
+
+            // find the options in the port (parameter) files
+            const file = options.port.files.find(item => item.fullname == optValue)
+
+            if (file && file.icon && file.icon.length > 0) {
+                icon = file.icon
+            }
+
+            if (!icon) {
+                const icons = self.data('icons')
+                if (optValue.startsWith("dir://")) {
+                    icon = icons.folder
+                } else {
+                    icon = icons.userFile
+                }
+            }
+            opt.attr('title', opt.text())
+            opt.html(`${icon}` + opt.html())
             opt.click(function (e) {
                 if (!self.data('enabled')) {
                     return self.customSelectPath('prevent', e)
                 }
-                var value = opt.attr('mod-parameter-value')
-                self.customSelectPath('setValue', value, false)
+                var value = opt.attr('mod-parameter-value').replace(/\\/g,'\\\\')
+                if (value?.startsWith('dir://')) {
+                    const icons = self.data('icons')
+                    const currentPath = self.customSelectPath('getCurrentPath')
+                    let isNavigateBack = false
+
+                    if (currentPath.length > 0) {
+                        // click on the same folder, is a navigate back
+                        isNavigateBack = 'dir://' + currentPath[currentPath.length - 1] == value
+                    }
+                    if (isNavigateBack) {
+                        self.customSelectPath('popDir')
+                        opt.html(opt.html().substr(icons.backArrow.length).replace('icon-folder-open', 'icon-folder'))
+                    } else {
+                        self.customSelectPath('pushDir', value)
+                        opt.html(icons.backArrow + opt.html().replace('icon-folder', 'icon-folder-open'))
+                    }
+                    e.stopPropagation()
+                } else if (value?.indexOf('://', 0) > -1) {
+                    // handle special uri
+                    const urihandle = self.data('urihandle')
+                    if (urihandle) {
+                        urihandle(value)
+                    }
+                } else {
+                    self.customSelectPath('setValue', value, false)
+                }
             })
         })
-        self.click(function () {
+
+        self.off('click.customSelectPath')
+        self.on('click.customSelectPath', function() {
             self.find('.mod-enumerated-list').toggle()
         })
 
+        self.customSelectPath('refreshFileList', self.data('currentPath'))
+        self.data('initialized', true)
         return self
+    },
+
+    getCurrentPath: function() {
+        let self = $(this)
+
+        return self.data('currentPath')
+    },
+
+
+    refreshFileList: function(current) {
+        let self = $(this)
+        let port = self.data('port')
+        let currentPaths
+
+        if (current.length == 0) {
+            currentPaths = port.basepaths
+        } else {
+            // show only files in the current path
+            currentPaths = [ current.join('/') ]
+        }
+
+        let validItems = []
+        for(let file of port.files) {
+            if (file.fullname.startsWith('t3k://')) {
+                if (current.length == 0) {
+                    validItems.push(file)
+                }
+                continue;
+            }
+            // check if file path is direct child of current path
+            // if yes add to files to show
+            let fullname = file.fullname
+            let itemIsDir = fullname.startsWith('dir://')
+
+            if (itemIsDir) {
+                fullname = fullname.substr('dir://'.length)
+            }
+
+            // remove last element
+            const lastSlashIndex = Math.max(fullname.lastIndexOf('/'), fullname.lastIndexOf('\\'));
+
+            if (lastSlashIndex != -1) {
+                itemPath = fullname.slice(0, lastSlashIndex);
+            } else {
+                itemPath = fullname
+            }
+
+            for(let currentPath of currentPaths) {
+                if (currentPath === itemPath
+                    || (current.length > 0 && itemIsDir && currentPath == fullname) // always show the current folder since is used to navigate up
+                    || (current.length == 0 && file.dirname == '') // show the default value on root
+                    ) {
+                    validItems.push(file)
+                }
+            }
+        }
+
+         self.find('[mod-role=enumeration-option]').each(function () {
+            let opt = $(this)
+            let item = opt.attr('mod-parameter-value').replace(/\\/g,'\\\\')
+
+            if (validItems.find((file) => item === file.fullname)) {
+                opt.removeClass('mod-hidden')
+            } else {
+                opt.addClass('mod-hidden')
+            }
+        });
+    },
+
+    pushDir: function(dir) {
+        let self = $(this)
+        let current = self.data('currentPath')
+        let port = self.data('port')
+        // set the value as current folder
+        let currentPath = dir.substr('dir://'.length)
+        current.push(currentPath)
+
+        let validItems = []
+        for(let file of port.files) {
+            if (file.fullname.startsWith('t3k://')) {
+                if (current.length == 0) {
+                    validItems.push(file)
+                }
+                continue;
+            }
+            // check if file path is direct child of current path
+            // if yes add to files to show
+            let fullname = file.fullname
+            let itemIsDir = fullname.startsWith('dir://')
+
+            if (itemIsDir) {
+                fullname = fullname.substr('dir://'.length)
+            }
+
+            if (fullname == currentPath) {
+                // always show current folder since is used to navigate Up
+                validItems.push(file)
+            } else {
+                // remove last element
+                const lastSlashIndex = Math.max(fullname.lastIndexOf('/'), fullname.lastIndexOf('\\'));
+
+                if (lastSlashIndex != -1) {
+                    itemPath = fullname.slice(0, lastSlashIndex);
+                } else {
+                    itemPath = fullname
+                }
+
+                if (currentPath === itemPath) {
+                    validItems.push(file)
+                }
+            }
+        }
+
+        self.find('[mod-role=enumeration-option]').each(function () {
+            let opt = $(this)
+            let item = opt.attr('mod-parameter-value').replace(/\\/g,'\\\\')
+
+            if (validItems.find((file) => item === file.fullname)) {
+                opt.removeClass('mod-hidden')
+            } else {
+                opt.addClass('mod-hidden')
+            }
+        });
+    },
+
+    popDir: function() {
+        let self = $(this)
+        let current = self.data('currentPath')
+        current.pop()
+        self.customSelectPath('refreshFileList', current)
     },
 
     setValue: function (value, only_gui) {
@@ -2702,6 +3149,47 @@ JqueryClass('customSelectPath', baseWidget, {
             valueField.text(selected.text())
         }
 
+        // sync the current folder with the value path
+        if (self.data('initialized')) {
+            let parts = value.split('/')
+            let path = ""
+            let parentPath = ""
+            let newCurrent = []
+
+            for(let index = 0; index < parts.length - 1; index++) {
+                if (index > 0) path += '/'
+                path += parts[index]
+                const folder = self.find("[mod-role=enumeration-option][mod-parameter-value='dir://" + path + "']")
+                if (folder.length > 0) {
+                    if (parentPath.length > 0) {
+                        // puth the other folders
+                        newCurrent.push(parts[index])
+                    } else {
+                        // push the root
+                        newCurrent.push(path)
+                    }
+                    parentPath = path
+                    // update the element UI
+                    const backArrow = self.data('icons').backArrow
+
+                    if (!folder.html().startsWith(backArrow)) {
+                        folder.html(backArrow + folder.html())
+                    }
+                }
+            }
+
+            // check if current folder is different
+            const current = self.data('currentPath')
+            let changeCurrentFolder = false
+
+            if (current.length !== newCurrent.length || !current.every((val, index) => val === newCurrent[index])) {
+                // empty the array
+                current.splice(0, current.length);
+                newCurrent.forEach(item => current.push(item))
+                // update the UI
+                self.customSelectPath('refreshFileList', current)
+            }
+        }
         if (!only_gui) {
             self.trigger('valuechange', value)
         }

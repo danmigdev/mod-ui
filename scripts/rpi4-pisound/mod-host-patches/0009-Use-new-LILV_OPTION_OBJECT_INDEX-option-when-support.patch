@@ -1,0 +1,28 @@
+From 6a967bacbab9418c8eaa5b1e98fe744d90c84af5 Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Sun, 21 Dec 2025 10:28:16 +0100
+Subject: [PATCH 09/11] Use new LILV_OPTION_OBJECT_INDEX option when supported
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit 2bd134c764564ef1b7ff9e5ef70ba037841a9608)
+---
+ src/effects.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/effects.c b/src/effects.c
+index e07e6a4..b5711bd 100644
+--- a/src/effects.c
++++ b/src/effects.c
+@@ -4112,6 +4112,9 @@ int effects_init(void* client)
+ 
+     /* Load all LV2 data */
+     g_lv2_data = lilv_world_new();
++#ifdef LILV_OPTION_OBJECT_INDEX
++    lilv_world_set_option(g_lv2_data, LILV_OPTION_OBJECT_INDEX, NULL);
++#endif
+     lilv_world_load_all(g_lv2_data);
+     g_plugins = lilv_world_get_all_plugins(g_lv2_data);
+ 
+-- 
+2.45.1.windows.1
+

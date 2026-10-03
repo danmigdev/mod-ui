@@ -1,0 +1,45 @@
+From 8ffdb3421bb63cf9177d436eb12742fb0b4360e9 Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Mon, 23 Sep 2024 14:35:31 +0200
+Subject: [PATCH 02/11] Fix socket read with extra leftover null bytes
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit c1edf9f88b5fffe761cb793b293f4731002946ad)
+---
+ src/socket.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/src/socket.c b/src/socket.c
+index 5b90044..752f1ce 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -371,6 +371,17 @@ void socket_run(int exit_on_failure)
+                     if (new_count > 0) /* Data received */
+                     {
+                         count += new_count;
++
++                        if (msgbuffer[count - 1] == '\0')
++                        {
++                            // ignore leftover null bytes
++                            while (count > 1 && msgbuffer[count - 1] == '\0')
++                                --count;
++
++                            // make sure to keep 1 null byte at the end of the string
++                            ++count;
++                            break;
++                        }
+                     }
+                     else if (new_count < 0) /* Error */
+                     {
+@@ -395,7 +406,7 @@ void socket_run(int exit_on_failure)
+             {
+                 msg.data = msgbuffer;
+ 
+-                while (count != 0)
++                while (count > 0)
+                 {
+                     if (*msg.data == '\0')
+                     {
+-- 
+2.45.1.windows.1
+

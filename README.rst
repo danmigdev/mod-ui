@@ -1,3 +1,26 @@
+MODEP with Grid UI
+==================
+
+This branch starts from BlokasLabs ``modep-1.13-ps`` at ``65843c5c``.
+It preserves the MODEP stock UI and adds Grid as an alternative editor.
+Open the Grid entry in the stock menu, or visit ``/grid.html``; Grid's
+settings contain a link back to the classic UI.
+
+PatchStorage, Blokas branding/menu behavior, MIDI addressing hints,
+Profiler ``.tapf`` files and default-pedalboard behavior remain available.
+Grid adds its routing editor, parameters, banks/snapshots, file manager,
+Tone3000 browser, MIDI controls and transport. Selected modern shared-code
+fixes are included; this is not a merge of the complete MOD master branch.
+
+See ``docs/modep-grid-port.rst`` for the source inventory, configuration,
+build/update procedure and validation results. Native utilities must be
+rebuilt and deployed with the Python sources. The official MODEP update
+check and notification remain; package replacement requires an explicit
+opt-in because it can overwrite this custom build.
+
+Original MODEP documentation
+----------------------------
+
 mod-ui
 ======
 

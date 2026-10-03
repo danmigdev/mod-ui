@@ -23,7 +23,13 @@ import shutil
 import subprocess
 import sys
 import time
-import tarfile
+import tempfile
+import unicodedata
+import urllib.parse
+from urllib.parse import quote, unquote
+from mod.patchstorage import validate_install_options, write_install_metadata
+from mod.plugin_install import validate_plugin_archive
+from modtools import tornado_compat  # noqa: F401
 
 try:
     sys.modules['tornado'] = __import__('tornado4')
@@ -36,12 +42,14 @@ from random import randint
 from signal import signal, SIGUSR1, SIGUSR2
 from tornado import gen, iostream, web, websocket
 from tornado.escape import squeeze, url_escape, xhtml_escape
+from tornado.httpclient import AsyncHTTPClient, HTTPError as HTTPClientError
 from tornado.ioloop import IOLoop
 from tornado.template import Loader
 from tornado.util import unicode_type
 from uuid import uuid4
 import urllib.request
 
+from mod.settings import TONE3000_CLIENT_ID, TONE3000_API, GRID_ALLOW_PACKAGE_UPGRADE
 from mod.profile import Profile
 from mod.settings import (APP, LOG, DEV_API,
                           HTML_DIR, DOWNLOAD_TMP_DIR, DEVICE_KEY, DEVICE_WEBSERVER_PORT,
@@ -90,19 +98,16 @@ gState = GlobalWebServerState()
 gState.favorites = []
 
 @gen.coroutine
-def install_bundles_in_tmp_dir(options, callback):
+def install_bundles_in_tmp_dir(callback, staging_dir=None):
+    staging_dir = staging_dir or DOWNLOAD_TMP_DIR
     error     = ""
     removed   = []
     installed = []
-    bundles   = []
     pluginsWereRemoved = False
-    patchstorage_id = None
 
-    for bundle in os.listdir(DOWNLOAD_TMP_DIR):
-        tmppath    = os.path.join(DOWNLOAD_TMP_DIR, bundle)
+    for bundle in os.listdir(staging_dir):
+        tmppath    = os.path.join(staging_dir, bundle)
         bundlepath = os.path.join(LV2_PLUGIN_DIR, bundle)
-
-        bundles.append(bundle)
 
         if os.path.exists(bundlepath):
             resp, data = yield gen.Task(SESSION.host.remove_bundle, bundlepath, True, None)
@@ -150,16 +155,13 @@ def install_bundles_in_tmp_dir(options, callback):
             list_banks(broken)
 
     if error or len(installed) == 0:
-        msg = error or "No plugins found in bundle"
-
         # Delete old temp files
-        for bundle in os.listdir(DOWNLOAD_TMP_DIR):
-            logging.warning(f'bundle: {bundle}, msg: {msg}')
-            shutil.rmtree(os.path.join(DOWNLOAD_TMP_DIR, bundle))
+        for bundle in os.listdir(staging_dir):
+            shutil.rmtree(os.path.join(staging_dir, bundle))
 
         resp = {
             'ok'       : False,
-            'error'    : msg,
+            'error'    : error or "No plugins found in bundle",
             'removed'  : removed,
             'installed': [],
         }
@@ -168,11 +170,11 @@ def install_bundles_in_tmp_dir(options, callback):
             'ok'       : True,
             'removed'  : removed,
             'installed': installed,
-            'bundles'  : bundles
         }
 
     os.sync()
     callback(resp)
+
 
 def run_command(args, cwd, callback):
     ioloop = IOLoop.instance()
@@ -188,8 +190,7 @@ def run_command(args, cwd, callback):
 
     ioloop.add_handler(proc.stdout.fileno(), end_fileno, 16)
 
-def install_package(filename, options, callback):
-    
+def install_package(filename, callback, options=None):
     if not os.path.exists(filename):
         callback({
             'ok'       : False,
@@ -199,31 +200,45 @@ def install_package(filename, options, callback):
         })
         return
 
+    options = options or {}
+    staging_dir = None
+
+    def failed(error):
+        if os.path.exists(filename):
+            os.remove(filename)
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        callback({'ok': False, 'error': str(error), 'installed': [], 'removed': []})
+
+    try:
+        validate_install_options(options)
+        bundles = validate_plugin_archive(filename)
+        staging_dir = tempfile.mkdtemp(prefix='mod-plugin-install-')
+    except (ValueError, OSError) as error:
+        failed(error)
+        return
+
+    def finished(resp):
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        callback(resp)
+
     def end_untar_pkgs(resp):
-        bundlenames = []
-        psid = options.get("psid")
+        if resp[0] != 0:
+            failed('Failed to extract plugin archive')
+            return
+        try:
+            os.remove(filename)
+            write_install_metadata(staging_dir, options, bundles)
+            for bundle in bundles:
+                if not os.path.isfile(os.path.join(staging_dir, bundle, 'manifest.ttl')):
+                    raise ValueError('Plugin bundle has no manifest.ttl')
+        except (ValueError, OSError) as error:
+            failed(error)
+            return
+        install_bundles_in_tmp_dir(finished, staging_dir)
 
-        if psid is not None:
-            psversion = options.get("psversion", "0.0")
-            config = {"id": int(psid), "revision": str(psversion)}
+    run_command(['tar', 'zxf', os.path.abspath(filename)], staging_dir, end_untar_pkgs)
 
-            try:
-                with tarfile.open(filename) as f:
-                    bundlenames = f.getnames()
-            except tarfile.ReadError as e:
-                logging.warning(f'tar file read error: {str(e)}')
-
-            for name in bundlenames:
-                if not any(s in name for s in ["/", "\\"]) and os.path.isdir(os.path.join(DOWNLOAD_TMP_DIR, name)):
-                    json_path = os.path.join(DOWNLOAD_TMP_DIR, name, "patchstorage.json")
-                    with open(json_path, 'w', encoding='utf-8') as file:
-                        json.dump(config, file, ensure_ascii=False, indent=4)
-
-        os.remove(filename)
-        install_bundles_in_tmp_dir(options, callback)
-    
-    logging.info(f'Installing: {filename}')
-    run_command(['tar','zxf', filename], DOWNLOAD_TMP_DIR, end_untar_pkgs)
 
 @gen.coroutine
 def restart_services(restartJACK2, restartUI):
@@ -342,7 +357,7 @@ class SimpleFileReceiver(JsonRequestHandler):
     @classmethod
     def urls(cls, path):
         return [
-            (r"/%s/$" % path, cls),
+            (r"/%s/?$" % path, cls),
         ]
 
     @web.asynchronous
@@ -356,14 +371,15 @@ class SimpleFileReceiver(JsonRequestHandler):
             os.mkdir(self.destination_dir)
         with open(os.path.join(self.destination_dir, basename), 'wb') as fh:
             fh.write(self.request.body)
-        yield gen.Task(self.process_file, basename, self.request.headers)
+        yield gen.Task(self.process_file, basename)
         self.write({
             'ok'    : True,
             'result': self.result
         })
 
-    def process_file(self, basename, headers, callback=lambda:None):
+    def process_file(self, basename, callback=lambda:None):
         """to be overriden"""
+
 
 @web.stream_request_body
 class MultiPartFileReceiver(JsonRequestHandler):
@@ -374,7 +390,7 @@ class MultiPartFileReceiver(JsonRequestHandler):
     @classmethod
     def urls(cls, path):
         return [
-            (r"/%s/$" % path, cls),
+            (r"/%s/?$" % path, cls),
         ]
 
     def prepare(self):
@@ -771,6 +787,8 @@ class APTCheck(JsonRequestHandler):
         self.write({
             "current": current,
             "latest": latest,
+            "custom_build": True,
+            "upgrade_allowed": GRID_ALLOW_PACKAGE_UPGRADE,
         })
 
 class APTUpgrade(JsonRequestHandler):
@@ -784,6 +802,10 @@ class APTUpgrade(JsonRequestHandler):
         return proc.returncode == 0
 
     def get(self):
+        if not GRID_ALLOW_PACKAGE_UPGRADE:
+            self.set_status(409)
+            self.write({'error': True, 'message': 'Official MODEP updates can replace this custom Grid build. Rebuild the fork to update it.'})
+            return
         error = False
 
         try:
@@ -804,6 +826,7 @@ class APTUpgrade(JsonRequestHandler):
         self.write({
             "error": error
         })
+
 
 class ControlChainDownload(SimpleFileReceiver):
     destination_dir = "/tmp/cc-update"
@@ -834,24 +857,18 @@ class EffectInstaller(SimpleFileReceiver):
 
     @web.asynchronous
     @gen.engine
-    def process_file(self, basename, headers, callback=lambda:None):
-        options = {}
-        
-        # TODO: remove this, once a better solution is found
-        psids = self.request.headers.get_list("Patchstorage-Item")
-        if psids and len(psids) > 0:
-            options["psid"] = psids[0]
-
-        psvers = self.request.headers.get_list("Patchstorage-Item-Version")
-        if psvers and len(psvers) > 0:
-            options["psversion"] = psvers[0]
-
+    def process_file(self, basename, callback=lambda:None):
         def on_finish(resp):
             reset_get_all_pedalboards_cache(kPedalboardInfoBoth)
             self.result = resp
             callback()
-        
-        install_package(os.path.join(DOWNLOAD_TMP_DIR, basename), options, on_finish)
+        options = {}
+        patch_id = self.request.headers.get('Patchstorage-Item')
+        if patch_id is not None:
+            options['psid'] = patch_id
+            options['psversion'] = self.request.headers.get('Patchstorage-Item-Version') or '0.0'
+        install_package(os.path.join(DOWNLOAD_TMP_DIR, basename), on_finish, options)
+
 
 class EffectBulk(JsonRequestHandler):
     def prepare(self):
@@ -887,7 +904,7 @@ class SDKEffectInstaller(EffectInstaller):
             fh.write(b64decode(upload['body']))
 
         # TODO: filename vs callback?
-        resp = yield gen.Task(install_package, {}, filename)
+        resp = yield gen.Task(install_package, filename)
 
         if resp['ok']:
             SESSION.msg_callback("rescan " + b64encode(json.dumps(resp).encode("utf-8")).decode("utf-8"))
@@ -963,6 +980,78 @@ class EffectResource(TimelessStaticFileHandler):
     def shared_resource(self, path):
         super(EffectResource, self).initialize(os.path.join(HTML_DIR, 'resources'))
         return super(EffectResource, self).get(path)
+
+class FileManagerProxy(TimelessRequestHandler):
+    @web.asynchronous
+    @gen.coroutine
+    def get(self, path):
+        yield self._proxy(path)
+
+    @web.asynchronous
+    @gen.coroutine
+    def post(self, path):
+        yield self._proxy(path)
+
+    @gen.coroutine
+    def _proxy(self, path):
+        # Tornado already unquotes the (.*) group (a folder named "Audio Tracks"
+        # arrives with a literal space); re-escape or the upstream request line
+        # is malformed.
+        url = "http://127.0.0.1:8081/" + quote(path or '', safe='/')
+        if self.request.query:
+            url += "?" + self.request.query
+
+        headers = {}
+        content_type = self.request.headers.get('Content-Type')
+        if content_type:
+            headers['Content-Type'] = content_type
+        body = self.request.body if self.request.method in ('POST', 'PUT') else None
+
+        try:
+            response = yield AsyncHTTPClient().fetch(
+                url, method=self.request.method, headers=headers, body=body,
+                follow_redirects=False, request_timeout=30)
+        except HTTPClientError as e:
+            if e.response is None:
+                self.set_status(502)
+                self.finish()
+                return
+            response = e.response
+
+        self.set_status(response.code)
+        resp_content_type = response.headers.get('Content-Type')
+        if resp_content_type:
+            self.set_header('Content-Type', resp_content_type)
+        self.finish(response.body or b'')
+
+
+class FileManagerStat(JsonRequestHandler):
+    def get(self, path):
+        base = os.path.realpath(USER_FILES_DIR)
+        target = os.path.realpath(os.path.join(base, unquote(path or '')))
+        if target != base and not target.startswith(base + os.sep):
+            raise web.HTTPError(403)
+        if not os.path.isdir(target):
+            raise web.HTTPError(404)
+
+        entries = []
+        for name in os.listdir(target):
+            full = os.path.join(target, name)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            isdir = os.path.isdir(full)
+            entries.append({
+                'name': name,
+                'isDir': isdir,
+                'extension': '' if isdir else os.path.splitext(name)[1].lstrip('.'),
+                'size': st.st_size,
+                'mtime': st.st_mtime,
+                'ctime': st.st_ctime,
+            })
+        self.write(entries)
+
 
 class EffectImage(TimelessStaticFileHandler):
     def initialize(self):
@@ -1674,19 +1763,27 @@ class PedalboardTransportSetSyncMode(JsonRequestHandler):
 
 class SnapshotSave(JsonRequestHandler):
     def post(self):
+        if not SESSION.host.pedalboard_path:
+            self.write(False)
+            return
         ok = SESSION.host.snapshot_save()
+        SESSION.host.save_snapshots_to_disk()
         self.write(ok)
 
 class SnapshotSaveAs(JsonRequestHandler):
     @web.asynchronous
     @gen.engine
     def get(self):
+        if not SESSION.host.pedalboard_path:
+            self.write({"ok": False, "id": None, "title": ""})
+            return
         title = self.get_argument('title')
         idx   = SESSION.host.snapshot_saveas(title)
         title = SESSION.host.snapshot_name(idx)
 
         yield gen.Task(SESSION.host.hmi_report_ss_name_if_current, idx)
 
+        SESSION.host.save_snapshots_to_disk()
         self.write({
             'ok': idx is not None,
             'id': idx,
@@ -1702,6 +1799,7 @@ class SnapshotRename(JsonRequestHandler):
         ok    = SESSION.host.snapshot_rename(idx, title)
 
         if ok:
+            SESSION.host.save_snapshots_to_disk()
             title = SESSION.host.snapshot_name(idx)
 
         yield gen.Task(SESSION.host.hmi_report_ss_name_if_current, idx)
@@ -1715,6 +1813,8 @@ class SnapshotRemove(JsonRequestHandler):
     def get(self):
         idx = int(self.get_argument('id'))
         ok  = SESSION.host.snapshot_remove(idx)
+        if ok:
+            SESSION.host.save_snapshots_to_disk()
         self.write(ok)
 
 class SnapshotList(JsonRequestHandler):
@@ -1742,8 +1842,6 @@ class SnapshotLoad(JsonRequestHandler):
         self.write(ok)
 
 class SnapshotCurrent(JsonRequestHandler):
-    @web.asynchronous
-    @gen.engine
     def get(self):
         self.write(SESSION.host.snapshot_name())
 
@@ -1829,9 +1927,9 @@ class TemplateHandler(TimelessRequestHandler):
             return
 
         loader = Loader(HTML_DIR)
-        section = path.split('.',1)[0]
+        section = path.split('.',1)[0].replace('-', '_')
 
-        if section == 'index':
+        if section in ('index', 'grid'):
             yield gen.Task(SESSION.wait_for_hardware_if_needed)
 
         try:
@@ -1901,9 +1999,21 @@ class TemplateHandler(TimelessRequestHandler):
             'patchstorage_api_url': PATCHSTORAGE_API_URL,
             'patchstorage_platform_id': PATCHSTORAGE_PLATFORM_ID,
             'patchstorage_target_id': PATCHSTORAGE_TARGET_ID,
-            'blokas_enabled': 'true' if BLOKAS_ENABLED else 'false'
+            'blokas_enabled': 'true' if BLOKAS_ENABLED else 'false',
+            'tone3000_client_id': TONE3000_CLIENT_ID.replace("'", "\\'"),
+            'tone3000_api': TONE3000_API.replace("'", "\\'"),
         }
         return context
+
+    def grid(self):
+        return self.index()
+
+    def tone3000_connect(self):
+        return {'tone3000_client_id': TONE3000_CLIENT_ID,
+                'tone3000_api': TONE3000_API, 'version': self.get_argument('v')}
+
+    def tone3000_callback(self):
+        return self.tone3000_connect()
 
     def pedalboard(self):
         bundlepath = self.get_argument('bundlepath')
@@ -1953,7 +2063,9 @@ class TemplateHandler(TimelessRequestHandler):
             'preferences': json.dumps(prefs),
             'bufferSize': get_jack_buffer_size(),
             'sampleRate': get_jack_sample_rate(),
-            'blokas_enabled': 'true' if BLOKAS_ENABLED else 'false'
+            'blokas_enabled': 'true' if BLOKAS_ENABLED else 'false',
+            'tone3000_client_id': TONE3000_CLIENT_ID.replace("'", "\\'"),
+            'tone3000_api': TONE3000_API.replace("'", "\\'"),
         }
         return context
 
@@ -1969,7 +2081,7 @@ class BulkTemplateLoader(TimelessRequestHandler):
         self.set_header("Content-Type", "text/javascript; charset=UTF-8")
         basedir = os.path.join(HTML_DIR, 'include')
         for template in os.listdir(basedir):
-            if not re.match('^[a-z_]+\.html$', template):
+            if not re.match(r'^[a-z_]+\.html$', template):
                 continue
             with open(os.path.join(basedir, template), 'r') as fh:
                 contents = fh.read()
@@ -2026,8 +2138,12 @@ class TrueBypass(JsonRequestHandler):
         self.write(ok)
 
 class SetBufferSize(JsonRequestHandler):
+    VALID_SIZES = (8, 16, 32, 64, 128, 256, 512, 1024)
+
     def post(self, size):
         size = int(size)
+        if size not in self.VALID_SIZES:
+            raise web.HTTPError(400)
 
         # If running a real MOD, save this setting for next boot
         if IMAGE_VERSION is not None:
@@ -2037,6 +2153,8 @@ class SetBufferSize(JsonRequestHandler):
             elif os.path.exists(USING_256_FRAMES_FILE):
                 os.remove(USING_256_FRAMES_FILE)
 
+            with open(os.path.join(DATA_DIR, "jack-buffer-size"), "w") as fh:
+                fh.write("%d\n" % size)
             os.sync()
 
         newsize = set_jack_buffer_size(size)
@@ -2044,6 +2162,7 @@ class SetBufferSize(JsonRequestHandler):
             'ok'  : newsize == size,
             'size': newsize,
         })
+
 
 class ResetXruns(JsonRequestHandler):
     def post(self):
@@ -2253,6 +2372,160 @@ class TokensSave(JsonRequestHandler):
 
         self.write(True)
 
+class PluginFileUpload(SimpleFileReceiver):
+    """
+    This is used by the web interface to upload a user file
+
+    Returns the path to the saved file
+    """
+    base_path = basepath = os.path.join(USER_FILES_DIR)
+    filetypes = {
+        ".nam": "nammodel",
+        ".wav": "cabsim",
+        ".aidax": "aidadspmodel"
+    }
+
+    @staticmethod
+    def sanitize_filename(filename: str, replacement: str = "-") -> str:
+        # 1. Normalize Unicode (e.g., convert accented characters like 'é' -> 'e')
+        filename = unicodedata.normalize('NFKD', filename).encode('ascii', 'ignore').decode('ascii')
+
+        # 2. Remove characters that are unsafe across OS (Windows, Linux, macOS)
+        # Allows only alphanumeric, hyphens, underscores, and dots
+        filename = re.sub(r'[^a-zA-Z0-9._\- !\+\(\)\[\]\{\}\.\,\;\:\"\']', replacement, filename)
+
+        # 3. Collapse multiple consecutive replacement characters into one
+        filename = re.sub(re.escape(replacement) + '+', replacement, filename)
+
+        # 4. Strip leading/trailing whitespaces, dots, and replacement characters
+        filename = filename.strip(' .' + replacement)
+
+        # 5. Fallback for empty strings
+        return filename or "unnamed_file"
+
+    @property
+    def destination_dir(self):
+        return '/tmp'
+
+    @web.asynchronous
+    @gen.engine
+    def process_file(self, basename, callback=lambda:None):
+        source_file = os.path.join(self.destination_dir, basename)
+        config = json.loads(urllib.parse.unquote(self.request.headers.get("X-Upload-Config", "{}")))
+
+        logging.info("PluginFileUpload %s destination filename ''%s''", source_file, config.get('filename', '') if config else 'no config available')
+        if not os.path.exists(source_file):
+            callback()
+            return
+
+        if not os.path.exists(self.destination_dir):
+            os.mkdir(self.destination_dir)
+
+        # directory: subfolder where save the file,
+        # onDirectoryConflict: what to do if directory already exists: 'rename' or merge
+        # filename: filename
+        # metadata:
+        #     are saved in the same folder with the same name of the filename and the extension from the source (eg. t3k)
+        #     the metadata file content is the values inside the data tag JSON format
+        #     {
+        #       source: 'T3K',
+        #       data: {
+        #           toneId: tone.id,
+        #           modelId: model.id
+        #       }
+        #
+        filetypes = {
+            ".nam": "nammodel",
+            ".wav": "cabsim",
+            ".aidax": "aidadspmodel"
+        }
+        model_file_name = PluginFileUpload.sanitize_filename(config.get('filename', basename))
+        model_base_name, ext = os.path.splitext(model_file_name)
+        filetype = config.get('filetype', None)
+
+        if filetype is None:
+            # try from the extension
+            filetype = filetypes.get(ext, 'ir')
+
+        directory, _ = FilesList._get_dir_and_extensions_for_filetype(filetype)
+        if directory is None:
+            logging.error("no directory found for filetype: %s, extension: %s", filetype, ext)
+            os.remove(source_file)
+            callback()
+            return
+        configDirectory = config.get('directory', "")
+        if configDirectory:
+            model_dir_name = PluginFileUpload.sanitize_filename(configDirectory)
+        else:
+            model_dir_name = ""
+        basepath = os.path.join(USER_FILES_DIR, directory) # eg. /user-files/NAM Models/
+        dirname = os.path.join(basepath, model_dir_name) # eg. /user-files/NAM Models/VOX AC 30/
+        onDirectoryConflict = config.get('onDirectoryConflict', 'merge').lower()
+        # logging.debug("model_file_name %s, model_base_name %s, ext %s, directory %s, model_dir_name %s, basepath %s, dirname %s",
+        #               model_file_name, model_base_name, ext, directory, model_dir_name, basepath, dirname)
+        if model_dir_name != "" and onDirectoryConflict == 'rename':
+            index = 0
+            while os.path.exists(dirname):
+                index += 1
+                model_dir_name = PluginFileUpload.sanitize_filename(configDirectory) + " {:02d}".format(index)
+                dirname = os.path.join(basepath, model_dir_name)
+
+        model_name = PluginFileUpload.sanitize_filename(model_base_name)
+        fullname = os.path.join(dirname, model_file_name) # eg. /user-files/NAM Models/T3K/VOX AC 30/VOX AC 30 Clean.nam
+        index = 0
+        while os.path.exists(fullname):
+            index += 1
+            model_name = PluginFileUpload.sanitize_filename(model_base_name) + " {:02d}".format(index)
+            model_file_name = model_name + ext
+            fullname = os.path.join(dirname, model_file_name) # eg. /user-files/NAM Models/T3K/VOX AC 30/VOX AC 30 Clean.nam
+
+        os.makedirs(dirname, exist_ok=True)
+
+        shutil.move(source_file, fullname)
+
+        self.result = {
+            'fullname': fullname,
+            'dirname': model_dir_name,
+            'basename': model_file_name,
+            'basepath': basepath,
+            'filetype': filetype,
+        }
+        callback()
+
+
+class FilesUpload(JsonRequestHandler):
+    def post(self, filetype):
+        datadir, extensions = FilesList._get_dir_and_extensions_for_filetype(filetype)
+        if datadir is None:
+            raise web.HTTPError(400)
+
+        # Anything outside the 3 CORS "simple" content-types forces a preflight we do not answer,
+        # so a cross-origin page cannot reach this handler.
+        if self.request.headers.get("Content-Type") != "application/octet-stream":
+            raise web.HTTPError(400)
+
+        # basename() alone would quietly turn "../../etc" into "etc" and write it anyway.
+        # Refuse anything it would rewrite, so a caller never gets a file somewhere it did
+        # not ask for. Both are single path components by the time we join them.
+        folder = self.get_argument("folder", "")
+        name   = self.get_argument("name", "")
+        if folder != os.path.basename(folder) or name != os.path.basename(name):
+            raise web.HTTPError(400)
+        if folder in ("", ".", "..") or name in ("", ".", ".."):
+            raise web.HTTPError(400)
+        if not name.lower().endswith(extensions):
+            raise web.HTTPError(400)
+
+        destdir = os.path.join(USER_FILES_DIR, datadir, folder)
+        os.makedirs(destdir, exist_ok=True)
+        fullname = os.path.join(destdir, name)
+        with open(fullname, 'wb') as fh:
+            fh.write(self.request.body)
+
+        # Same string FilesList builds by walking, so a caller can match on it.
+        self.write({'ok': True, 'fullname': fullname})
+
+
 class FilesList(JsonRequestHandler):
     complete_audiofile_exts = (
         # through libsndfile
@@ -2300,7 +2573,7 @@ class FilesList(JsonRequestHandler):
 
         elif filetype == "sfz":
             return ("SFZ Instruments", (".sfz",))
-        
+
         elif filetype == "tapf":
             return ("Amplifier Profiles", (".tapf",))
 
@@ -2309,6 +2582,9 @@ class FilesList(JsonRequestHandler):
 
         elif filetype == "nammodel":
             return ("NAM Models", (".nam",))
+
+        elif filetype == "easyspinprog":
+            return ("Easy Spin Programs", (".json",))
 
         else:
             return (None, ())
@@ -2330,13 +2606,16 @@ class FilesList(JsonRequestHandler):
             if datadir is None:
                 continue
 
-            for root, dirs, files in os.walk(os.path.join(USER_FILES_DIR, datadir)):
+            basepath = os.path.join(USER_FILES_DIR, datadir)
+            for root, dirs, files in os.walk(basepath):
                 for name in tuple(name for name in sorted(files) if name.lower().endswith(extensions)):
                     fullname = os.path.join(root, name)
                     fullnames.append(fullname)
                     retfiles[fullname] = {
                         'fullname': fullname,
+                        'dirname': root[len(basepath) + 1:],
                         'basename': name,
+                        'basepath': basepath,
                         'filetype': filetype,
                     }
 
@@ -2444,6 +2723,10 @@ application = web.Application(
 
             # file listing etc
             (r"/files/list/?", FilesList),
+            (r"/files/upload/([a-z]+)/?", FilesUpload),
+            (r"/files/upload/?", PluginFileUpload),
+            (r"/filemanager-stat/(.*)", FileManagerStat),
+            (r"/filemanager/(.*)", FileManagerProxy),
 
             (r"/reset/?", DashboardClean),
 
@@ -2462,7 +2745,7 @@ application = web.Application(
             (r"/hello/?", Hello),
 
             (r"/truebypass/(Left|Right)/(true|false)", TrueBypass),
-            (r"/set_buffersize/(128|256)", SetBufferSize),
+            (r"/set_buffersize/(\d+)", SetBufferSize),
             (r"/reset_xruns/", ResetXruns),
             (r"/switch_cpu_freq/", SwitchCpuFreq),
 

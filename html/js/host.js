@@ -61,6 +61,10 @@ $('document').ready(function() {
             ws.send("pong")
             return
         }
+        if (cmd == "resetConnections") {
+            desktop.pedalboard.pedalboard('resetConnections')
+            return
+        }
         if (cmd == "stop") {
             desktop.blockUI()
             return
@@ -379,6 +383,7 @@ $('document').ready(function() {
                         plugin_version: pVersion,
                     },
                     success: function (pluginData) {
+                        preparePluginPortGroups(pluginData)
                         var instancekey = '[mod-instance="' + instance + '"]'
 
                         if (!$(instancekey).length) {

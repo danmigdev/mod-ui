@@ -42,3 +42,29 @@ function getInstanceSymbol(instanceAndSymbol) {
   var split = instanceAndSymbol.split("/")
   return [split.slice(0, -1).join("/")].concat(split.slice(-1))
 }
+
+// Normalize native group URIs before rendering the stock generic controls.
+function preparePluginPortGroups(plugin) {
+    var groups = (plugin.portGroups || []).slice().sort(function (a, b) {
+        return (a.index || 0) - (b.index || 0)
+    })
+    var ports = plugin.ports.control.input
+    ports.forEach(function (port) {
+        var uri = typeof port.group === 'string' ? port.group : (port.group && port.group.uri)
+        port.group = groups.filter(function (group) { return group.uri === uri })[0]
+        port.groupIndex = port.group ? groups.indexOf(port.group) : groups.length
+        port.groupCssIndex = port.group ? port.groupIndex % 32 : undefined
+        port.groupStart = false
+        port.groupEnd = false
+    })
+    ports.sort(function (a, b) {
+        return a.groupIndex - b.groupIndex || a.index - b.index
+    })
+    var previous
+    ports.forEach(function (port) {
+        if (port.group && (!previous || previous.groupIndex !== port.groupIndex)) port.groupStart = true
+        if (previous && previous.group && previous.groupIndex !== port.groupIndex) previous.groupEnd = true
+        previous = port
+    })
+    if (previous && previous.group) previous.groupEnd = true
+}

@@ -1,0 +1,146 @@
+MODEP Grid port
+==============
+
+Base and scope
+--------------
+
+The branch modep-grid-theme starts directly from BlokasLabs/mod-ui
+modep-1.13-ps, commit 65843c5cc4a1959063b9c96c3897b66ad7003427.
+The separate checkout leaves rpi4-pisound-integration and its uncommitted
+stock-store restoration untouched. No MOD master merge is included in this
+branch's ancestry.
+
+Grid assets and selected shared fixes come from rpi4-pisound-integration
+at 83ab9b2e, with the small Grid store hook adaptation from the local
+restoration. The source branch's independent-chain design documents are
+not an implemented feature and are not included as working audio behavior.
+
+Preserved MODEP behavior
+------------------------
+
+* Stock index.html, PatchStorage window/templates/styles and its menu entry.
+* Blokas branding, conditional menu visibility and moddevices.com AJAX filter.
+* Version checking and notification through /apt/check and the Blokas service.
+* Original package upgrade service integration, with the custom-build guard
+  described below. The check is performed when opening the stock page.
+* Profiler Amplifier Profiles (.tapf) and MIDI/snapshot addressing hints.
+* Default-pedalboard loading special case in Desktop.loadPedalboard.
+* Existing device/HMI handling, presets directory configuration, user data
+  paths and the pedalboard/current and snapshot/current endpoints.
+* Legacy using-256-frames persistence, alongside the additional buffer-size
+  setting. Existing default.pedalboard and audio graph are not replaced.
+
+Added or adapted
+----------------
+
+* Grid HTML/CSS/controller files and a stock-to-Grid navigation entry.
+  The default route continues to serve the MODEP stock UI.
+* Grid plugin shelf, parameter editor, explicit audio routing, banks,
+  pedalboards, snapshots, file manager, PatchStorage, Tone3000, transport,
+  MIDI-device selection, font size, buffer controls and classic-UI switch.
+* Same-origin browsepy proxy (/filemanager/) and file statistics endpoint.
+  browsepy must still run separately on 127.0.0.1:8081.
+* Typed NAM uploads and Tone3000 OAuth popup pages. The Grid browser uses
+  its own OAuth integration; no MOD cloud account is required. The stock
+  constructor remains usable without Tone3000 globals or credentials.
+* Ordered LV2 port-group metadata, matched Python/C structures, current
+  plugin rendering/file-picker fixes and native USB-port labeling fixes.
+  Stock generic controls also resolve groups by their declared index.
+* PatchStorage process-ABI selection, environment compatibility and atomic
+  item/revision metadata writes. Existing patchstorage.json sidecars are
+  read from installed bundles and refreshed without a stale native cache.
+* Plugin archive validation and isolated extraction before bundle loading.
+  Both /effect/install and /effect/install/ retain the stock response shape.
+* Snapshot persistence and rejection of saves without a persisted board.
+* Power-of-two buffer periods from 8 to 1024; original 128/256 UI remains.
+* External pedalboard cable reset and current Tornado 4/Python compatibility.
+* Pedalboard thumbnail resizing works with both older and current Pillow.
+* MODEP's console entry point remains mod.modep:run, now a callable function
+  that imports the server without starting it during module inspection.
+
+Native compatibility
+--------------------
+
+Port-group metadata changes the native structure layout relative to stock
+MODEP. Build utils/libmod_utils.so from this exact checkout, and deploy it
+with modtools/utils.py. Do not mix the system MODEP binary with this branch's
+Python wrappers. Import now refuses a library missing the required bundle
+lookup export instead of dereferencing the older layout.
+
+The MODEP PatchStorage sidecar format and public JSON metadata remain
+compatible; metadata enrichment now happens in the Python wrapper. Original
+native patchstorage.cpp/h files remain as historical source, but the updated
+Makefile does not compile them.
+
+Configuration
+-------------
+
+Existing MODEP variables remain accepted: LV2_PLUGIN_DIR, MOD_PRESETS_DIR,
+MOD_USER_PEDALBOARDS_DIR, MOD_USER_FILES_DIR and MOD_DATA_DIR. The plugin path
+also accepts MOD_USER_PLUGINS_DIR, taking precedence when explicitly set.
+Do not change existing Patchbox service/data locations when activating Grid.
+
+PatchStorage accepts both PATCHSTORAGE_* and MOD_PATCHSTORAGE_* variables;
+MOD-prefixed overrides take precedence. The current public catalog defaults
+are platform 8046, ARMHF target 8278 and AArch64 target 8280. An explicitly
+configured target is preserved. Other architectures require an explicit
+target to enable downloads. A local API proxy can still be configured.
+
+Tone3000 needs MOD_TONE3000_CLIENT_ID or the public client ID in
+<MOD_DATA_DIR>/tone3000-client-id. MOD_TONE3000_API can override the service
+address. Without a client ID the browser shows the setup message.
+
+Build and deployment
+--------------------
+
+The source-checkout runner and the MODEP console entry point are supported.
+For Raspberry Pi 4/Pisound, scripts/rpi4-pisound/build.sh, activate.sh and
+rollback.sh provide the reviewed source-build workflow and service drop-ins.
+The pinned mod-host integration is inherited from the previous project; its
+source tree and patch hashes remain recorded in stack.json. The mod-ui base
+is now explicitly recorded as the Blokas repository and modep-1.13-ps branch.
+
+Build on the Raspberry from a committed checkout, using a new output folder::
+
+    bash scripts/rpi4-pisound/build.sh --output /opt/modep-grid/builds/<build-id>
+    sudo bash scripts/rpi4-pisound/activate.sh --dry-run /opt/modep-grid/builds/<build-id>
+    sudo bash scripts/rpi4-pisound/activate.sh /opt/modep-grid/builds/<build-id>
+
+Review build.sh prerequisites and the existing service environment first.
+Activation retains the existing modep service user and inherited data paths.
+The script requires both MODEP UI and host services and supports rollback
+through the matching rollback.sh script. This port has not been activated
+on Raspberry/Pisound hardware yet.
+
+Updates
+-------
+
+/apt/check retains the installed package version and Blokas latest-version
+check, and adds custom_build and upgrade_allowed fields. Stock UI startup
+still checks automatically and announces a differing official version.
+
+Official package updates do not carry this custom Grid source. By default,
+/apt/upgrade returns HTTP 409 before touching the update marker or service;
+the UI explains that the fork should be rebuilt. Update Grid by updating
+this branch, making a new build and activating that build. The previous
+build is retained for rollback.
+
+MOD_GRID_ALLOW_PACKAGE_UPGRADE=1 explicitly enables the original MODEP
+package-update handler. Use it only when intentionally accepting that an
+official package update can replace the custom installation. The notifier
+compares official MODEP package versions; it does not discover newer Git
+commits of this fork.
+
+Validation
+----------
+
+Linux/WSL native utilities compiled successfully. The checked-in suite has
+75 passing JavaScript tests, 101 passing default Python tests and two passing
+native Lilv fixture tests run separately. A subprocess test verifies real
+port-group metadata and existing PatchStorage identities with the rebuilt
+library. Stock constructor/store regressions and HTTP tests cover both
+layouts, local assets, OAuth popup pages, .tapf, current-board/snapshot APIs,
+installer metadata, snapshot persistence and the official-upgrade guard.
+
+These results do not establish live catalog/download availability, real
+browser layout, audio latency, hardware MIDI or a Raspberry deployment.

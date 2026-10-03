@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os, sys
+from mod.patchstorage import get_config as get_patchstorage_config
 from os.path import join
 from platform import machine
 
@@ -64,7 +65,7 @@ os.environ['MOD_KEYS_PATH'] = KEYS_PATH
 DOWNLOAD_TMP_DIR = os.environ.get('MOD_DOWNLOAD_TMP_DIR', '/tmp/mod-ui')
 PEDALBOARD_TMP_DIR = os.environ.get('MOD_PEDALBOARD_TMP_DIR', join(DATA_DIR, 'pedalboard-tmp-data'))
 
-LV2_PLUGIN_DIR = os.environ.get('LV2_PLUGIN_DIR', os.path.expanduser("~/.lv2/"))
+LV2_PLUGIN_DIR = os.environ.get("MOD_USER_PLUGINS_DIR", os.environ.get("LV2_PLUGIN_DIR", os.path.expanduser("~/.lv2/")))
 LV2_PEDALBOARDS_DIR = os.environ.get('MOD_USER_PEDALBOARDS_DIR', os.path.expanduser("~/.pedalboards/"))
 LV2_FACTORY_PEDALBOARDS_DIR = os.environ.get('MOD_FACTORY_PEDALBOARDS_DIR', "/usr/share/mod/pedalboards/")
 
@@ -129,21 +130,35 @@ UPDATE_CC_FIRMWARE_FILE='/tmp/cc-firmware.bin'
 USING_256_FRAMES_FILE='/data/using-256-frames'
 
 # Blokas Flags
-PATCHSTORAGE_ENABLED=bool(int(os.environ.get('PATCHSTORAGE_ENABLED', True)))
-PATCHSTORAGE_API_URL=os.environ.get('PATCHSTORAGE_API_URL', 'http://localhost/api/beta/patches')
-PATCHSTORAGE_PLATFORM_ID=os.environ.get('PATCHSTORAGE_PLATFORM_ID', 5027)
-
-PATCHSTORAGE_TARGET_ID=os.environ.get('PATCHSTORAGE_TARGET_ID', None)
-
-if PATCHSTORAGE_TARGET_ID == None:
-    if machine() in [ 'armv7l', 'aarch64' ]:
-        if sys.maxsize <= 2**32:
-            PATCHSTORAGE_TARGET_ID=os.environ.get('PATCHSTORAGE_ARMHF_TARGET_ID', None)
-        else:
-            PATCHSTORAGE_TARGET_ID=os.environ.get('PATCHSTORAGE_AARCH64_TARGET_ID', None)
-else:
-    PATCHSTORAGE_TARGET_ID=5037
+_patchstorage_config = get_patchstorage_config()
+PATCHSTORAGE_ENABLED = _patchstorage_config['enabled']
+PATCHSTORAGE_API_URL = _patchstorage_config['api_url']
+PATCHSTORAGE_PLATFORM_ID = _patchstorage_config['platform_id']
+PATCHSTORAGE_TARGET_ID = _patchstorage_config['target_id']
 
 BLOKAS_ENABLED=bool(int(os.environ.get('BLOKAS_ENABLED', True)))
 BLOKAS_APT_PACKAGE=os.environ.get('BLOKAS_APT_PACKAGE', 'modep-mod-ui')
 BLOKAS_UPDATE_CHECK_URL=os.environ.get('BLOKAS_UPDATE_CHECK_URL', 'https://blokas.io/modep/version/v1/')
+
+# Tone3000 integration. The client id is the OAuth publishable key (t3k_pub_...) -- a
+# public value, but deployment configuration, so it is deliberately never committed.
+# Provide it as MOD_TONE3000_CLIENT_ID, or write it to the file named by
+# MOD_TONE3000_CLIENT_ID_FILE (default <data dir>/tone3000-client-id). Without a key
+# the Tone3000 tab shows a "not set up" note instead of the browse button.
+#
+# Mint one at tone3000.com -> Settings -> API Keys -> Create API Key, and leave that
+# key's allowed redirect URIs empty so any device address is accepted -- the PKCE
+# verifier and the state check are what protect the flow.
+TONE3000_CLIENT_ID = os.environ.get('MOD_TONE3000_CLIENT_ID', "").strip()
+if not TONE3000_CLIENT_ID:
+    _t3k_key_file = os.environ.get('MOD_TONE3000_CLIENT_ID_FILE', join(DATA_DIR, 'tone3000-client-id'))
+    try:
+        with open(_t3k_key_file) as _fh:
+            TONE3000_CLIENT_ID = _fh.read().strip()
+    except OSError:
+        pass
+TONE3000_API = os.environ.get('MOD_TONE3000_API', "https://www.tone3000.com")
+
+
+# Official MODEP package upgrades must not silently replace a custom Grid build.
+GRID_ALLOW_PACKAGE_UPGRADE = os.environ.get('MOD_GRID_ALLOW_PACKAGE_UPGRADE', '0') == '1'

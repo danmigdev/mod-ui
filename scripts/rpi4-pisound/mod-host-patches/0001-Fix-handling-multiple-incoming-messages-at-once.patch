@@ -1,0 +1,50 @@
+From 845075c26c111c49e9fecc273284ed3bb326e889 Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Fri, 12 Jul 2024 15:47:48 +0100
+Subject: [PATCH 01/11] Fix handling multiple incoming messages at once
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit 486955fa713e7b7beda9e82411fee69dcb65fcb4)
+---
+ src/socket.c | 25 +++++++++++++++++++++----
+ 1 file changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/src/socket.c b/src/socket.c
+index b21afae..5b90044 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -391,10 +391,27 @@ void socket_run(int exit_on_failure)
+                 msgbuffer = buffer;
+             }
+ 
+-            msg.sender_id = clientfd;
+-            msg.data = msgbuffer;
+-            msg.data_size = count;
+-            if (g_receive_cb) g_receive_cb(&msg);
++            if (g_receive_cb)
++            {
++                msg.data = msgbuffer;
++
++                while (count != 0)
++                {
++                    if (*msg.data == '\0')
++                    {
++                        --count;
++                        ++msg.data;
++                        continue;
++                    }
++
++                    msg.sender_id = clientfd;
++                    msg.data_size = strlen(msg.data) + 1;
++                    g_receive_cb(&msg);
++
++                    count -= msg.data_size;
++                    msg.data += msg.data_size;
++                }
++            }
+ 
+             if (msgbuffer != buffer)
+                 free(msgbuffer);
+-- 
+2.45.1.windows.1
+

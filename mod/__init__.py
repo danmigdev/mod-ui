@@ -15,6 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+from modtools import tornado_compat  # noqa: F401
 import re
 import json
 import shutil

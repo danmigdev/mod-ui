@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Connecting to TONE3000…</title>
+    <!--
+      TONE3000 redirects the grid theme's account-connect popup here (see
+      grid-tone3000.js). This page is served from mod-ui's own origin, so it is
+      same-origin with the window that opened it and can read that window's
+      globals and sessionStorage directly -- where the PKCE verifier and the
+      CSRF state live.
+
+      Its whole job: verify state, exchange the auth code for tokens, hand them
+      to the opener's GridTone3000, and close. No browsing or downloading here;
+      that all happens back in the mod-ui panel.
+    -->
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body {
+            background: #232323; color: #d9d9d9;
+            font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px;
+            display: flex; align-items: center; justify-content: center; text-align: center;
+            padding: 24px;
+        }
+        .card { max-width: 320px; }
+        .brand { color: #b968c7; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; font-size: 11px; margin-bottom: 12px; }
+        #msg { margin: 0; color: #9a9a9a; }
+        #msg.error { color: #e2726e; }
+        .spinner {
+            width: 22px; height: 22px; margin: 0 auto 16px; border-radius: 50%;
+            border: 2px solid rgba(185,104,199,.3); border-top-color: #b968c7;
+            animation: spin .7s linear infinite;
+        }
+        .spinner[hidden] { display: none; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <p class="brand">TONE3000</p>
+        <div class="spinner" id="spin"></div>
+        <p id="msg">Connecting your account…</p>
+    </div>
+<script type="text/javascript">
+(function () {
+    var msgEl = document.getElementById('msg')
+    var spin = document.getElementById('spin')
+    function fail(text) {
+        spin.hidden = true
+        msgEl.textContent = text
+        msgEl.className = 'error'
+    }
+
+    var opener = null
+    try { opener = (window.opener && !window.opener.closed) ? window.opener : null } catch (e) { /* leave null */ }
+
+    function handBack(tokens, err) {
+        if (opener && opener.GridTone3000 && opener.GridTone3000.receiveTokens) {
+            opener.GridTone3000.receiveTokens(tokens || null, err || null)
+        }
+        if (tokens) { window.close() }
+    }
+
+    if (!opener) {
+        fail('Lost the mod-ui window that opened this one.')
+        return
+    }
+
+    var params = new URLSearchParams(window.location.search)
+    var code = params.get('code')
+    var state = params.get('state')
+    var error = params.get('error')
+
+    if (error) { handBack(null, error); fail('TONE3000 returned an error: ' + error); return }
+
+    var storedState = opener.sessionStorage.getItem('t3k_state')
+    var verifier = opener.sessionStorage.getItem('t3k_code_verifier')
+
+    if (!state || state !== storedState) { handBack(null, 'state mismatch'); fail('Sign-in check failed (state mismatch).'); return }
+    if (!code || !verifier) { handBack(null, 'no authorization code'); fail('No authorization code came back.'); return }
+
+    var api = opener.TONE3000_API
+    fetch(api + '/api/v1/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: code,
+            code_verifier: verifier,
+            redirect_uri: window.location.origin + window.location.pathname,
+            client_id: opener.TONE3000_CLIENT_ID
+        }).toString()
+    }).then(function (res) {
+        if (!res.ok) throw new Error('token exchange failed (HTTP ' + res.status + ')')
+        return res.json()
+    }).then(function (t) {
+        handBack({
+            access_token: t.access_token,
+            refresh_token: t.refresh_token,
+            expires_at: Date.now() + (t.expires_in || 3600) * 1000
+        })
+    }).catch(function (e) {
+        handBack(null, String(e && e.message || e))
+        fail(String(e && e.message || e))
+    })
+})()
+</script>
+</body>
+</html>

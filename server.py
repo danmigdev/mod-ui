@@ -3,6 +3,7 @@
 # FOR DEVELOPMENT PURPOSES ONLY
 
 import os, sys
+from modtools import tornado_compat  # noqa: F401
 from datetime import datetime
 from os.path import join
 from random import randint
@@ -29,11 +30,11 @@ def create_dummy_credentials():
             print('Can\'t create a device key: {0}'.format(ex))
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
-DATA_DIR = join(ROOT, 'data')
+DATA_DIR = os.environ.get('MOD_DATA_DIR', join(ROOT, 'data'))
 os.makedirs(DATA_DIR, exist_ok=True)
 
 os.environ['MOD_DEV_ENVIRONMENT'] = os.environ.get("MOD_DEV_ENVIRONMENT", '1')
-#os.environ['MOD_DATA_DIR'] = DATA_DIR
+os.environ['MOD_DATA_DIR'] = DATA_DIR
 os.environ['MOD_LOG'] = os.environ.get("MOD_LOG", '1')
 os.environ['MOD_KEY_PATH'] = join(DATA_DIR, 'keys')
 os.environ['MOD_DEVICE_WEBSERVER_PORT'] = '8888'

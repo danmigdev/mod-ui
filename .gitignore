@@ -2,7 +2,6 @@
 start.sh
 .DS_Store
 .kdev_include_paths
-package-lock.json
 *~
 *.o
 *.so
@@ -39,3 +38,6 @@ utils/test
 *node_modules/
 .idea
 *.egg-info
+
+.venv/
+.pytest_cache/

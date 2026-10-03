@@ -1,0 +1,51 @@
+From 4e3f80c387a0d34209b324539ac70c359506b0be Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Thu, 9 Apr 2026 17:12:29 +0200
+Subject: [PATCH 07/11] Delay worker responses until next run instead of trying
+ to yield
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit eed327f7759356313fca79d0ee92d69ee06fabc6)
+---
+ src/worker.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/src/worker.c b/src/worker.c
+index e298cef..5ed0e38 100644
+--- a/src/worker.c
++++ b/src/worker.c
+@@ -40,12 +40,13 @@ static void* worker_func(void* data)
+ {
+     worker_t* worker = (worker_t*)data;
+     void* buf = NULL;
++    uint32_t size;
+     while (true) {
+         sem_wait(&worker->sem);
+         if (worker->exit) break;
+ 
+         while (jack_ringbuffer_read_space(worker->requests) != 0) {
+-            uint32_t size = 0;
++            size = 0;
+             jack_ringbuffer_peek(worker->requests, (char*)&size, sizeof(size));
+ 
+             if (jack_ringbuffer_read_space(worker->requests) < sizeof(size) + size) {
+@@ -119,13 +120,13 @@ LV2_Worker_Status worker_schedule(LV2_Worker_Schedule_Handle handle, uint32_t si
+ void worker_emit_responses(worker_t *worker)
+ {
+     if (worker->responses) {
++        uint32_t size;
+         while (jack_ringbuffer_read_space(worker->responses) != 0) {
+-            uint32_t size = 0;
++            size = 0;
+             jack_ringbuffer_peek(worker->responses, (char*)&size, sizeof(size));
+ 
+             if (jack_ringbuffer_read_space(worker->responses) < sizeof(size) + size) {
+-                sched_yield();
+-                continue;
++                break;
+             }
+ 
+             jack_ringbuffer_read_advance(worker->responses, sizeof(size));
+-- 
+2.45.1.windows.1
+

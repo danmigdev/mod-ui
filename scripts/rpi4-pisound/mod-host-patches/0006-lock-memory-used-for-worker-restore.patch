@@ -1,0 +1,76 @@
+From 38f83e56d8848b8b1f42419dcb9087fb8b90bdb2 Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Tue, 6 Jan 2026 17:50:51 +0100
+Subject: [PATCH 06/11] lock memory used for worker restore
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit 665ae0a2eb3d6750029a16d4e7f6f2319a896053)
+---
+ src/worker.c | 21 ++++++++++++++++++---
+ src/worker.h |  1 +
+ 2 files changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/src/worker.c b/src/worker.c
+index fce44e0..e298cef 100644
+--- a/src/worker.c
++++ b/src/worker.c
+@@ -1,5 +1,6 @@
+ /*
+   Copyright 2007-2012 David Robillard <http://drobilla.net>
++  Copyright 2016-2026 Filipe Coelho <falktx@falktx.com>
+ 
+   Permission to use, copy, modify, and/or distribute this software for any
+   purpose with or without fee is hereby granted, provided that the above
+@@ -14,11 +15,16 @@
+   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+ 
+-#include <stdlib.h>
+-
+ #include "worker.h"
+ 
+ #include <sched.h>
++#include <stdlib.h>
++
++#ifdef _WIN32
++#include <windows.h>
++#else
++#include <sys/mman.h>
++#endif
+ 
+ static LV2_Worker_Status worker_respond(LV2_Worker_Respond_Handle handle, uint32_t size, const void* data)
+ {
+@@ -73,9 +79,18 @@ void worker_init(worker_t *worker, LilvInstance *instance, const LV2_Worker_Inte
+     zix_thread_create(&worker->thread, size + sizeof(void*) * 4, worker_func, worker);
+     worker->requests  = jack_ringbuffer_create(size);
+     worker->responses = jack_ringbuffer_create(size);
+-    worker->response  = malloc(size);
+     jack_ringbuffer_mlock(worker->requests);
+     jack_ringbuffer_mlock(worker->responses);
++
++    const uint32_t max_response_size = jack_ringbuffer_write_space(worker->responses);
++    worker->response = malloc(max_response_size);
++#ifdef _WIN32
++    VirtualLock(worker, sizeof(max_response_size));
++    VirtualLock(worker->response, max_response_size);
++#else
++    mlock(worker, sizeof(*worker));
++    mlock(worker->response, max_response_size);
++#endif
+ }
+ 
+ void worker_finish(worker_t *worker)
+diff --git a/src/worker.h b/src/worker.h
+index 65401fa..62335b9 100644
+--- a/src/worker.h
++++ b/src/worker.h
+@@ -1,5 +1,6 @@
+ /*
+   Copyright 2007-2012 David Robillard <http://drobilla.net>
++  Copyright 2016-2026 Filipe Coelho <falktx@falktx.com>
+ 
+   Permission to use, copy, modify, and/or distribute this software for any
+   purpose with or without fee is hereby granted, provided that the above
+-- 
+2.45.1.windows.1
+

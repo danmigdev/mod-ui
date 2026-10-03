@@ -1,0 +1,30 @@
+From af8b632f142f7d8a40364df557959601d54ea015 Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Tue, 20 Aug 2024 15:04:32 +0200
+Subject: [PATCH 10/11] [de]activate plugins for buffer size changes
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit f923f1437927b86ec638295d1de38f9d3926cc07)
+---
+ src/effects.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/effects.c b/src/effects.c
+index b5711bd..4559463 100644
+--- a/src/effects.c
++++ b/src/effects.c
+@@ -1040,7 +1040,11 @@ static int BufferSize(jack_nframes_t nframes, void* data)
+             options[4].type = 0;
+             options[4].value = NULL;
+ 
++            lilv_instance_deactivate(effect->lilv_instance);
++
+             effect->options_interface->set(effect->lilv_instance->lv2_handle, options);
++
++            lilv_instance_activate(effect->lilv_instance);
+         }
+     }
+ #ifdef HAVE_HYLIA
+-- 
+2.45.1.windows.1
+

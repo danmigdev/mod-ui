@@ -1,0 +1,40 @@
+From b7042349ef6f48b55636902d0800e7e6ca14d45d Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Sat, 28 Sep 2024 23:43:45 +0200
+Subject: [PATCH 03/11] Set TCP_NODELAY
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit fae0c49ae0ec634e806aa228ea9511443900cf39)
+---
+ src/socket.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/socket.c b/src/socket.c
+index 752f1ce..37c4f70 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -32,6 +32,7 @@
+ #else
+ #include <sys/socket.h>
+ #include <netinet/in.h>
++#include <netinet/tcp.h>
+ #define closesocket close
+ #define INVALID_SOCKET -1
+ typedef int SOCKET;
+@@ -160,7 +161,12 @@ int socket_start(int socket_port, int feedback_port, int buffer_size)
+     if (feedback_port != 0)
+         setsockopt(g_fbserverfd, SOL_SOCKET, SO_REUSEPORT, &value, sizeof(value));
+ 
+-    /* increase socket size */
++    /* Set TCP_NODELAY */
++    setsockopt(g_serverfd, SOL_TCP, TCP_NODELAY, &value, sizeof(value));
++    if (feedback_port != 0)
++        setsockopt(g_fbserverfd, SOL_TCP, TCP_NODELAY, &value, sizeof(value));
++
++    /* Increase socket size */
+     value = 131071;
+     setsockopt(g_serverfd, SOL_SOCKET, SO_RCVBUF, &value, sizeof(value));
+     if (feedback_port != 0)
+-- 
+2.45.1.windows.1
+

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2012-2023 MOD Audio UG
+# SPDX-License-Identifier: AGPL-3.0-or-later
 
 import os
-import json
 from ctypes import *
 from mod import get_unique_name
+from mod.patchstorage import read_bundle_metadata
+from sys import platform
 
 # ------------------------------------------------------------------------------------------------------------
 # Convert a ctypes c_char_p into a python string
@@ -15,18 +17,6 @@ def charPtrToString(charPtr):
     if isinstance(charPtr, str):
         return charPtr
     return charPtr.decode("utf-8", errors="ignore")
-
-def decodePatchstorageJsonInStructDict(structDict):
-    ps = structDict.get('patchstorage', None)
-    js = None
-    if ps:
-        try:
-            js = json.loads(ps)
-        except:
-            print('Patchstorage json parsing failed!')
-            js = None
-        structDict['patchstorage'] = js
-    return structDict
 
 # ------------------------------------------------------------------------------------------------------------
 # Convert a ctypes POINTER(c_char_p) into a python string list
@@ -131,8 +121,6 @@ def toPythonType(value, attr):
         return structPtrPtrToList(value)
     if isinstance(value, c_union_types):
         return unionToDict(value)
-    if value is None:
-        return None
     print("..............", attr, ".....................", value, ":", type(value))
     return value
 
@@ -158,13 +146,26 @@ def unionToDict(struct):
 
 # ------------------------------------------------------------------------------------------------------------
 
-tryPath1 = os.path.join(os.path.dirname(__file__), "libmod_utils.so")
-tryPath2 = os.path.join(os.path.dirname(__file__), "..", "utils", "libmod_utils.so")
+if platform == 'win32':
+    ext = "dll"
+else:
+    ext = "so"
+
+tryPath1 = os.path.join(os.path.dirname(__file__), "libmod_utils." + ext)
+tryPath2 = os.path.join(os.path.dirname(__file__), "..", "lib", "libmod_utils." + ext)
+tryPath3 = os.path.join(os.path.dirname(__file__), "..", "utils", "libmod_utils." + ext)
 
 if os.path.exists(tryPath1):
     utils = cdll.LoadLibrary(tryPath1)
-else:
+elif os.path.exists(tryPath2):
     utils = cdll.LoadLibrary(tryPath2)
+else:
+    utils = cdll.LoadLibrary(tryPath3)
+
+# This port extends MODEP's native struct layout for port groups. Refuse a
+# stock MODEP library before ctypes dereferences an incompatible structure.
+if not hasattr(utils, 'get_plugin_bundle_path'):
+    raise RuntimeError('This MODEP Grid build requires its rebuilt libmod_utils.so. Run make -C utils and deploy the native library with the Python sources.')
 
 # PluginLicenseType
 kPluginLicenseNonCommercial = 0
@@ -226,6 +227,15 @@ class PluginGUI_Mini(Structure):
         ("thumbnail", c_char_p),
     ]
 
+class PluginPortGroup(Structure):
+    _fields_ = [
+        ("valid", c_bool),
+        ("uri", c_char_p),
+        ("symbol", c_char_p),
+        ("name", c_char_p),
+        ("index", c_uint),
+    ]
+
 class PluginPortRanges(Structure):
     _fields_ = [
         ("minimum", c_float),
@@ -258,6 +268,7 @@ class PluginPort(Structure):
         ("units", PluginPortUnits),
         ("comment", c_char_p),
         ("designation", c_char_p),
+        ("group", c_char_p),
         ("properties", POINTER(c_char_p)),
         ("rangeSteps", c_int),
         ("scalePoints", POINTER(PluginPortScalePoint)),
@@ -348,9 +359,9 @@ class PluginInfo(Structure):
         ("bundles", POINTER(c_char_p)),
         ("gui", PluginGUI),
         ("ports", PluginPorts),
+        ("portGroups", POINTER(PluginPortGroup)),
         ("parameters", POINTER(PluginParameter)),
         ("presets", POINTER(PluginPreset)),
-        ("patchstorage", c_char_p),
     ]
 
 # a subset of PluginInfo
@@ -376,7 +387,6 @@ class PluginInfo_Mini(Structure):
         ("licensed", c_int),
         ("iotype", c_int),
         ("gui", PluginGUI_Mini),
-        ("patchstorage", c_char_p),
     ]
 
 class PluginInfo_Essentials(Structure):
@@ -539,6 +549,7 @@ c_structp_types = (POINTER(PluginGUIPort),
                    POINTER(PluginPortScalePoint),
                    POINTER(PluginPort),
                    POINTER(PluginParameter),
+                   POINTER(PluginPortGroup),
                    POINTER(PluginPreset),
                    POINTER(PedalboardPlugin),
                    POINTER(PedalboardConnection),
@@ -574,6 +585,16 @@ utils.get_all_plugins.restype  = POINTER(POINTER(PluginInfo_Mini))
 
 utils.get_plugin_info.argtypes = (c_char_p,)
 utils.get_plugin_info.restype  = POINTER(PluginInfo)
+
+# This additive export keeps the existing plugin structs intact. Libraries
+# without the optional export use the full-info lookup instead.
+try:
+    _native_plugin_bundle_path = utils.get_plugin_bundle_path
+except AttributeError:
+    _native_plugin_bundle_path = None
+else:
+    _native_plugin_bundle_path.argtypes = (c_char_p,)
+    _native_plugin_bundle_path.restype = c_char_p
 
 utils.get_non_cached_plugin_info.argtypes = (c_char_p,)
 utils.get_non_cached_plugin_info.restype  = POINTER(NonCachedPluginInfo)
@@ -622,9 +643,6 @@ utils.list_plugins_in_bundle.restype  = POINTER(c_char_p)
 
 utils.file_uri_parse.argtypes = (c_char_p,)
 utils.file_uri_parse.restype  = c_char_p
-
-utils.set_cpu_affinity.argtypes = (c_int,)
-utils.set_cpu_affinity.restype  = None
 
 utils.init_jack.argtypes = None
 utils.init_jack.restype  = c_bool
@@ -739,9 +757,33 @@ def get_plugin_list():
 # this triggers short scanning of all plugins
 def get_all_plugins():
     plugins = structPtrPtrToList(utils.get_all_plugins())
-    for p in plugins:
-        decodePatchstorageJsonInStructDict(p)
+    metadata_cache = {}
+    for plugin in plugins:
+        _add_patchstorage_metadata(plugin, metadata_cache)
     return plugins
+
+
+def _add_patchstorage_metadata(info, metadata_cache=None):
+    if _native_plugin_bundle_path is not None:
+        path = charPtrToString(_native_plugin_bundle_path(info['uri'].encode('utf-8')))
+        bundle_paths = [path] if path else []
+    elif 'bundles' in info:
+        bundle_paths = info['bundles']
+    else:
+        full_info = utils.get_plugin_info(info['uri'].encode('utf-8'))
+        bundle_paths = charPtrPtrToStringList(full_info.contents.bundles) if full_info else []
+
+    for path in bundle_paths:
+        if metadata_cache is not None and path in metadata_cache:
+            metadata = metadata_cache[path]
+        else:
+            metadata = read_bundle_metadata(path)
+            if metadata_cache is not None:
+                metadata_cache[path] = metadata
+        if metadata is not None:
+            info['patchstorage'] = metadata
+            break
+    return info
 
 # get a specific plugin
 # NOTE: may throw
@@ -749,7 +791,7 @@ def get_plugin_info(uri):
     info = utils.get_plugin_info(uri.encode("utf-8"))
     if not info:
         raise Exception
-    return decodePatchstorageJsonInStructDict(structToDict(info.contents))
+    return _add_patchstorage_metadata(structToDict(info.contents))
 
 # get a specific plugin (non-cached specific info)
 # NOTE: may throw
@@ -927,12 +969,6 @@ def get_bundle_dirname(bundleuri):
         bundle = os.path.dirname(bundle)
 
     return bundle
-
-# ------------------------------------------------------------------------------------------------------------
-# helper utilities
-
-def set_cpu_affinity(cpu):
-    utils.set_cpu_affinity(cpu)
 
 # ------------------------------------------------------------------------------------------------------------
 # jack stuff

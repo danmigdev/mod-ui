@@ -1,0 +1,57 @@
+From dead6abd8496768e28e7e07878add42a9ba5f630 Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@falktx.com>
+Date: Fri, 14 Feb 2025 19:32:52 +0100
+Subject: [PATCH 04/11] Fix socket reads of messages of exactly 1024 in size
+
+Signed-off-by: falkTX <falktx@falktx.com>
+(cherry picked from commit 9d4dc138cf417dba68573d50b908f7b57fe03cb4)
+---
+ src/socket.c | 17 ++++++++---------
+ 1 file changed, 8 insertions(+), 9 deletions(-)
+
+diff --git a/src/socket.c b/src/socket.c
+index 37c4f70..906afa5 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -348,7 +348,7 @@ void socket_run(int exit_on_failure)
+ 
+         if (count > 0) /* Data received */
+         {
+-            if (count == g_buffer_size)
++            if (count == g_buffer_size && buffer[count - 1] != '\0')
+             {
+                 /* if message is bigger than our buffer, dynamically allocate more data until we receive it all */
+                 int new_count, new_buffer_size;
+@@ -379,15 +379,7 @@ void socket_run(int exit_on_failure)
+                         count += new_count;
+ 
+                         if (msgbuffer[count - 1] == '\0')
+-                        {
+-                            // ignore leftover null bytes
+-                            while (count > 1 && msgbuffer[count - 1] == '\0')
+-                                --count;
+-
+-                            // make sure to keep 1 null byte at the end of the string
+-                            ++count;
+                             break;
+-                        }
+                     }
+                     else if (new_count < 0) /* Error */
+                     {
+@@ -410,6 +402,13 @@ void socket_run(int exit_on_failure)
+ 
+             if (g_receive_cb)
+             {
++                // ignore leftover null bytes
++                while (count > 1 && msgbuffer[count - 1] == '\0')
++                    --count;
++
++                // make sure to keep 1 null byte at the end of the string
++                ++count;
++
+                 msg.data = msgbuffer;
+ 
+                 while (count > 0)
+-- 
+2.45.1.windows.1
+

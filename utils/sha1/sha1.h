@@ -17,7 +17,9 @@
 # if __BYTE_ORDER__ ==  __ORDER_BIG_ENDIAN__
 # define SHA_BIG_ENDIAN
 # endif
-#else // ! defined __LITTLE_ENDIAN__
+#elif defined _WIN32
+/* assume little endian */
+#else
 # include <endian.h> // machine/endian.h
 # if __BYTE_ORDER__ ==  __ORDER_BIG_ENDIAN__
 #  define SHA_BIG_ENDIAN
@@ -38,8 +40,6 @@ typedef struct sha1nfo {
 	uint32_t state[HASH_LENGTH/4];
 	uint32_t byteCount;
 	uint8_t bufferOffset;
-	uint8_t keyBuffer[BLOCK_LENGTH];
-	uint8_t innerHash[HASH_LENGTH];
 } sha1nfo;
 
 /* public API - prototypes */
