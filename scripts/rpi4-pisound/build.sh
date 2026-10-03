@@ -51,11 +51,12 @@ if ((hylia_required)); then
         exit 1
     }
 fi
-read -r host_base host_tree < <(python3 - "$script_dir/stack.json" <<'PY'
+read -r host_repository host_revision host_tree < <(python3 - "$script_dir/stack.json" <<'PY'
 import json, sys
 with open(sys.argv[1]) as handle:
     stack = json.load(handle)
-print(stack['mod_host_base_revision'], stack['mod_host_integration_tree'])
+print(stack['mod_host_repository'], stack['mod_host_integration_revision'],
+      stack['mod_host_integration_tree'])
 PY
 )
 umask 022
@@ -72,13 +73,11 @@ if [[ -n "$host_source" ]]; then
     git -C "$host_source" archive HEAD | tar -xf - -C "$output_dir/mod-host"
 else
     git -C "$output_dir/mod-host" init --quiet
-    git -C "$output_dir/mod-host" remote add origin https://github.com/mod-audio/mod-host.git
-    git -C "$output_dir/mod-host" fetch --quiet --depth 1 origin "$host_base"
+    git -C "$output_dir/mod-host" remote add origin "$host_repository"
+    git -C "$output_dir/mod-host" fetch --quiet --depth 1 origin "$host_revision"
     git -C "$output_dir/mod-host" checkout --quiet --detach FETCH_HEAD
-    git -C "$output_dir/mod-host" -c user.name='Grid integration' -c user.email='build@localhost' \
-        am --quiet "$output_dir/mod-ui/scripts/rpi4-pisound/mod-host-patches/"*.patch
     [[ $(git -C "$output_dir/mod-host" rev-parse 'HEAD^{tree}') = "$host_tree" ]] || {
-        echo 'Applied mod-host patches do not match the reviewed source tree.' >&2; exit 1;
+        echo 'Fetched mod-host revision does not match the reviewed source tree.' >&2; exit 1;
     }
 fi
 jobs=${MOD_BUILD_JOBS:-2}

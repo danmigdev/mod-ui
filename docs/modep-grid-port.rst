@@ -96,9 +96,21 @@ Build and deployment
 The source-checkout runner and the MODEP console entry point are supported.
 For Raspberry Pi 4/Pisound, scripts/rpi4-pisound/build.sh, activate.sh and
 rollback.sh provide the reviewed source-build workflow and service drop-ins.
-The pinned mod-host integration is inherited from the previous project; its
-source tree and patch hashes remain recorded in stack.json. The mod-ui base
-is now explicitly recorded as the Blokas repository and modep-1.13-ps branch.
+The pinned host is danmigdev/mod-host:modep-grid-host, based on
+BlokasLabs/mod-host:modep at 44c7b18, the MODEP package's source revision.
+It merges the previously reviewed Raspberry host integration while preserving
+Blokas's removal of the obsolete IRC workflow. Its runtime sources are identical
+to the previously deployed host. Host repository, commit and tree are pinned
+in stack.json; build.sh fetches that commit and verifies the tree. The archived
+mod-host-patches directory documents the earlier integration and is no longer
+applied during builds. The UI base remains Blokas modep-1.13-ps.
+
+The host branch compiled and passed all isolated JACK/LV2 integration checks
+on WSL, including audio routing, buffer changes, MIDI, transport, presets/state
+and socket/worker framing. This publication does not replace the active
+Raspberry build described below. Pull requests can target the Blokas UI and
+host independently; the host PR includes stable upstream updates as well as
+the selected integration fixes, rather than being a Grid-only UI change.
 
 Build on the Raspberry from a committed checkout, using a new output folder::
 
